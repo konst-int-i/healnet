@@ -6,6 +6,9 @@ __pycache__/
 # C extensions
 *.so
 
+# subrepos
+PORPOISE/
+
 # Distribution / packaging
 .Python
 build/
@@ -15,7 +18,6 @@ downloads/
 eggs/
 .eggs/
 lib/
-lib64/
 parts/
 sdist/
 var/
