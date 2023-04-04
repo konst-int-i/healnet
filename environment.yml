@@ -14,6 +14,7 @@ dependencies:
   - seaborn==0.11.2
   - torchvision==0.14.1
   - tqdm==4.64.1
+  - pip==23.0
   - pip:
       - torchsummary==1.5.1
       - wandb==0.13.11
