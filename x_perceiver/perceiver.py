@@ -160,7 +160,7 @@ class Perceiver(nn.Module):
           input_channels: Number of channels for each token of the input.
           input_axis: Number of axes for input data (2 for images, 3 for video)
           num_latents: Number of latents, or induced set points, or centroids.
-              Different papers giving it different names.
+              Differednt papers giving it different names.
           latent_dim: Latent dimension.
           cross_heads: Number of heads for cross attention. Paper said 1.
           latent_heads: Number of heads for latent self attention, 8.

@@ -1,9 +1,0 @@
-name: cognition
-channels: 
-  - conda-forge
-  - defaults
-  - pytorch
-dependencies: 
-  - python=3.9
-  - pytorch==1.13.1
-  - pandas==1.5.3
