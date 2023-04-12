@@ -6,17 +6,31 @@ Explainable perceiver for multimodal tasks
 
 Install or update the conda environment using and then activate
 
+### Conda
 ```
 conda env update -f environment.yml
 conda activate cognition
 ```
 
+### Command line installation
+
+On Mac or Linux, you can install the below dependencies using the command line
+
+```bash
+invoke install
+```
+
+### Openslide
 Note that for `openslide-python` to work, you need to install `openslide` separately on your system. 
 See [here](https://openslide.org/download/) for instructions. 
+
+### GDC client
+To download the WSI data, you need to install the [gdc-client](https://docs.gdc.cancer.gov/Data_Transfer_Tool/Users_Guide/Data_Download_and_Upload/) for your respective platform
 
 
 ## Data
 
-Download the data by running the script `download_data.sh`
+1. Specify the path to the gdc-client executable in `main.yml`
+2. Run `invoke download --dataset <dataset>`
 
 
