@@ -1,0 +1,3 @@
+data_path: data/
+tcga_path: data/tcga/
+gdc_client: /Applications/gdc-client # location of gdc client executable
