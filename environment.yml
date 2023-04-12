@@ -18,6 +18,7 @@ dependencies:
   - python-box==7.0.0
   - pip==23.0
   - pip:
+      - invoke==2.0.0
       - torchsummary==1.5.1
       - wandb==0.13.11
       - openslide-python==1.2.0
