@@ -4,6 +4,24 @@ from pathlib import Path
 import pandas as pd
 import os
 
+
+@task
+def install(c, system: str):
+    assert system in ["linux", "mac"], "Invalid OS specified, must be one of 'linux' or 'mac'"
+
+    print(f"Installing gdc-client for {system}...")
+    if system == "linux":
+        c.run("curl -0 https://gdc.cancer.gov/files/public/file/gdc-client_v1.6.1_Ubuntu_x64.zip "
+              "--output gdc-client.zip")
+        c.run("unzip gdc-client.zip")
+    if system == "mac":
+        c.run("curl -0 https://gdc.cancer.gov/files/public/file/gdc-client_v1.6.1_OSX_x64.zip "
+              "--output gdc-client.zip")
+        c.run("unzip gdc-client.zip")
+    print(f"Installed gdc-client at {os.getcwd()}")
+    # cleanup
+    os.remove("gdc-client.zip")
+
 @task
 def download(c, dataset, samples: int = None, config_path="config/main.yml"):
     valid_datasets = ["brca", "blca"]

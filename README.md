@@ -17,8 +17,9 @@ conda activate cognition
 On Mac or Linux, you can install the below dependencies using the command line
 
 ```bash
-invoke install
+invoke install --system <system>
 ```
+for both `linux` and `mac`. 
 
 ### Openslide
 Note that for `openslide-python` to work, you need to install `openslide` separately on your system. 
@@ -30,7 +31,7 @@ To download the WSI data, you need to install the [gdc-client](https://docs.gdc.
 
 ## Data
 
-1. Specify the path to the gdc-client executable in `main.yml`
+1. Specify the path to the gdc-client executable in `main.yml` (this will likely be the repository root if you installed the dependencies using `invoke install`). 
 2. Run `invoke download --dataset <dataset>`
 
 
