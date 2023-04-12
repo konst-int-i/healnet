@@ -1,0 +1,3 @@
+data_path: /net/archive/export/tcga
+tcga_path: /net/archive/export/tcga/tcga
+gdc_client: ~/gdc-client
