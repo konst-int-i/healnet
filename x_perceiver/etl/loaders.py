@@ -3,48 +3,128 @@ from torchvision import transforms
 from x_perceiver.utils import Config
 from openslide import OpenSlide
 import os
+import torch
+import pprint
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 from pathlib import Path
 from typing import *
+from box import Box
 
 
-def filter_manifest_files(config: Config, dataset: str):
-    """
-    Temporary util to filter the manifest files to only include the
-    WSI images required
-    Returns:
-    """
-    mol_df = TCGADataset(dataset, config).molecular_df
-    manifest_path = Path(config.tcga_path).joinpath(f"gdc_manifests/full/{dataset}_wsi_manifest_full.txt")
-    manifest_df = pd.read_csv(manifest_path, sep="\t")
-    manifest_filtered = manifest_df.loc[manifest_df.filename.isin(mol_df["slide_id"])]
-
-    assert manifest_filtered.shape[0] == mol_df.shape[0], "Number of filtered manifest files does not match number of molecular files"
-
-    write_path = Path(config.tcga_path).joinpath(f"gdc_manifests/filtered/{dataset}_wsi_manifest_filtered.txt")
-    manifest_filtered.to_csv(write_path, sep="\t", index=False)
-    print(f"Saved filtered manifest file to {write_path}")
-    return None
 
 
 class TCGADataset(Dataset):
 
-    def __init__(self, dataset: str, config):
+    def __init__(self, dataset: str, config: Box, preload_tensors: bool = True):
+        """
+        Dataset wrapper to load different TCGA data modalities (molecular and WSI data).
+        Args:
+            dataset:
+            config:
+
+        Examples:
+            >>> from x_perceiver.etl.loaders import TCGADataset
+            >>> from x_perceiver.utils import Config
+            >>> config = Config("config/main.yml").read()
+            >>> dataset = TCGADataset("blca", config)
+            # get molecular data
+            >>> dataset.molecular_df
+            # get sample slide
+            >>> slide, tensor = dataset.load_wsi(blca.sample_slide_id, resolution="lowest")
+        """
         self.dataset = dataset
         self.config = config
+        self.data_conf = config.data
         self.molecular_df = self.load_molecular()
-
+        # filter for image samples available
+        self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
+        self.target = self.molecular_df["high_risk"]
+        self.features = self.molecular_df.drop(["site", "oncotree_code", "case_id", "slide_id"], axis=1)
+        # self.molecular_filtered_df = self.molecular_df.loc[self.molecular_df["slide_id"].isin(self.svs_dict.keys())]
+        self.slide_idx: dict = self._get_slide_idx() # {idx (molecular_df): slide_id}
+        self.get_info(full_detail=False)
+        if preload_tensors:
+            self.wsi_tensors = self.load_transform_wsi(level=3) # {slide_id: tensor}
 
     def __getitem__(self, index):
-        pass
+        slide_id = self.molecular_df.iloc[index]["slide_id"]
+        # # check that slide is available
+        if slide_id in self.wsi_paths.keys():
+            slide_tensor = self.wsi_tensors[slide_id]
+        else:
+            slide, slide_tensor = None, torch.tensor([])
+        # filter out features not relevant for training
+        # df = self.molecular_df.drop(["site", "oncotree_code", "case_id", "slide_id"], axis=1)
+        mol_tensor = torch.from_numpy(self.features.iloc[index].values)
+        label = self.target.iloc[index]
+        return mol_tensor, slide_tensor, label
+
+    def load_transform_wsi(self, level: int):
+        widths = []
+        heights = []
+        tensor_dict = {}
+        print("Loading WSIs...")
+        # for key, value in list(self.wsi_paths.items())[0:2]:
+        for key, value in self.wsi_paths.items():
+            print(f"Reading WSI: {key}")
+            slide, array, read_level = self.load_wsi(key, level=level)
+            tensor_dict[key] = array
+            widths.append(slide.level_dimensions[read_level][0])
+            heights.append(slide.level_dimensions[read_level][1])
+        largest_index = np.argmax(widths)
+        # take nearest multiple of 128 of height and width (for patches)
+        width = round(widths[largest_index]/128)*128
+        height = round(heights[largest_index]/128)*128
+        # get highest resolution given the level (not all slides have the same level dimensions)
+        print(f"Transforming WSIs to (w:{width}, h:{height}) tensors...")
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            transforms.Resize((height, width)),
+        ])
+        transformed_dict = {key: transform(value) for key, value in tensor_dict.items()}
+        return transformed_dict
+
+    def _get_slide_idx(self):
+        return dict(zip(self.molecular_df.index, self.molecular_df["slide_id"]))
 
     def __len__(self):
-        pass
+        return self.molecular_df.shape[0]
 
-    def get_info(self):
-        pass
+    def _get_slide_dict(self):
+        """
+        Given the download structure of the gdc-client, each slide is stored in a folder
+        with a non-meaningful name. This function returns a dictionary of slide_id to
+        the path of the slide.
+        Returns:
+            svs_dict (dict): Dictionary of slide_id to path of slide
+        """
+        slide_path = Path(self.config.tcga_path).joinpath(f"wsi/{self.dataset}")
+        svs_files = list(slide_path.glob("**/*.svs"))
+        svs_dict = {path.name: path for path in svs_files}
+        return svs_dict
+
+    @property
+    def sample_slide_id(self):
+        return next(iter(self.wsi_paths.keys()))
+
+    def get_info(self, full_detail: bool = False):
+        slide, tensor, _ = self.load_wsi(self.sample_slide_id, resolution="lowest")
+        slide_path = Path(self.config.tcga_path).joinpath(f"wsi/{self.dataset}/")
+        print(f"Dataset: {self.dataset.upper()}")
+        print(f"Molecular data shape: {self.molecular_df.shape}")
+        slide_dirs = [f for f in os.listdir(slide_path) if not f.startswith(".")]
+        print(f"Total slides available: {len(slide_dirs)}")
+        sample_overlap = (set(self.molecular_df["slide_id"]) & set(self.wsi_paths.keys()))
+        print(f"Molecular/Slide match: {len(sample_overlap)}/{len(self.molecular_df)}")
+        # print(f"Slide dimensions: {slide.dimensions}")
+        print(f"Slide level count: {slide.level_count}")
+        print(f"Slide level dimensions: {slide.level_dimensions}")
+
+        if full_detail:
+            pprint(dict(slide.properties))
+
 
     def load_molecular(self) -> pd.DataFrame:
         data_path = Path(self.config.tcga_path).joinpath(f"molecular/tcga_{self.dataset}_all_clean.csv.zip")
@@ -69,7 +149,7 @@ class TCGADataset(Dataset):
         """
 
         # load in openslide object
-        slide_path = Path(self.config.tcga_path).joinpath(f"wsi/{self.dataset}/{slide_id}.svs")
+        slide_path = self.wsi_paths[slide_id]
         slide = OpenSlide(slide_path)
 
         # specify resolution level
@@ -84,12 +164,13 @@ class TCGADataset(Dataset):
                 level = 0
             if resolution == "mid":
                 level = int(slide.level_count / 2)
-            print("Loading slide region at level", level)
-
+        if level > slide.level_count - 1:
+            level = slide.level_count - 1
+        print(f"Loading slide at level {level} ")
         # load in region
         size = slide.level_dimensions[level]
         region = slide.read_region((0,0), level, size)
-        return slide, transforms.ToTensor()(region)
+        return slide, region, level
 
 
 
