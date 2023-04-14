@@ -1,0 +1,8 @@
+data_path: data/
+tcga_path: data/tcga/
+#gdc_client: /Applications/gdc-client # location of gdc client executable
+gdc_client: ./gdc-client
+
+data:
+#  wsi_resolution: lowest # lowest, highest, or mid
+

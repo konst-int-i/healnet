@@ -1,9 +1,16 @@
+## Loading data
+
+### Molecular data
+
+### WSI
+
 ## Dataset descriptions
 
 ### TCGA-BLCA
 
 The TCGA-BLCA dataset is a comprehensive characterisation of 409 bladder cancer samples. Available at 
-https://portal.gdc.cancer.gov/projects/TCGA-BLCA. 
+https://portal.gdc.cancer.gov/projects/TCGA-BLCA.
+
 
 Data categories: 
 
@@ -16,5 +23,17 @@ Data categories:
 * Biospecimen: biological samples used for the molecular analyses, such as the type of tissue or cell line, sample collection date, and quality control metrics.
 
 Slide data: 
-We download the slide data by filtering for the .svs file format via manifest. 
+We download the slide data by filtering for the .svs file format via manifest. The manifest files we used are available in the data/manifests folder.
+
+Note that for every case ID, there are multiple slides, which depend on the experimental strategy (tissue slide, diagnostic slide, etc.). We have been using those in accordance with 
+the slide IDs from the molecular data files. 
+
+
+
+Please see the data volume for each WSI dataset in the table below.
+
+| Dataset | Data volume | N Samples | Slides per sample |
+| --- |-------------|-----------|-------------------|
+| TCGA-BLCA | 833 GB      | 412       | 2                 |
+| TCGA-BRCA | 1.64 TB     | 1,098     | 3                 |
 
