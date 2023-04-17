@@ -2,3 +2,14 @@ data_path: /net/archive/export/tcga
 tcga_path: /net/archive/export/tcga/tcga
 gdc_client: ~/gdc-client
 
+data:
+  level: 3
+
+model:
+  batch_size: 1
+  epochs: 10
+  max_lr: 0.005
+  lr: 0.001
+  momentum: 0.9
+
+
