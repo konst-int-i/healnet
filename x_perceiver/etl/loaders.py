@@ -5,6 +5,7 @@ from openslide import OpenSlide
 import os
 import torch
 import pprint
+from einops import rearrange, repeat
 import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
@@ -40,17 +41,14 @@ class TCGADataset(Dataset):
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
         self.config = config
         self.data_conf = config.data
+        self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
         self.molecular_df = self.load_molecular()
         self.level = level
         self.slide_idx: dict = self._get_slide_idx() # {idx (molecular_df): slide_id}
-        self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
         self.wsi_width, self.wsi_height = self.get_resize_dims(level=self.level)
         self.target = self.molecular_df["high_risk"]
         self.features = self.molecular_df.drop(["site", "oncotree_code", "case_id", "slide_id"], axis=1)
-        # self.molecular_filtered_df = self.molecular_df.loc[self.molecular_df["slide_id"].isin(self.svs_dict.keys())]
         self.get_info(full_detail=False)
-        # if preload_tensors:
-        #     self.wsi_tensors = self.load_transform_wsi(level=3) # {slide_id: tensor}
 
     def __getitem__(self, index):
         # TODO - implement cache
@@ -71,7 +69,8 @@ class TCGADataset(Dataset):
 
     def get_resize_dims(self, level: int):
         # TODO - validate which dimensions to pick for each level
-        slide_sample = self.slide_idx[0]
+        print(self.slide_idx)
+        slide_sample = list(self.slide_idx.values())[0]
         slide_path = self.wsi_paths[slide_sample]
         slide = OpenSlide(slide_path)
         print(slide.level_dimensions[level])
@@ -82,38 +81,16 @@ class TCGADataset(Dataset):
         height = round(height/128)*128
         return width, height
 
-
-    # def load_transform_wsi(self, level: int):
-    #     widths = []
-    #     heights = []
-    #     tensor_dict = {}
-    #     print("Loading WSIs...")
-    #     # for key, value in list(self.wsi_paths.items())[0:2]:
-    #     for key, value in self.wsi_paths.items():
-    #         print(f"Reading WSI: {key}")
-    #         slide, array, read_level = self.load_wsi(key, level=level)
-    #         tensor_dict[key] = array
-    #         widths.append(slide.level_dimensions[read_level][0])
-    #         heights.append(slide.level_dimensions[read_level][1])
-    #     largest_index = np.argmax(widths)
-    #     # take nearest multiple of 128 of height and width (for patches)
-    #     width = round(widths[largest_index]/128)*128
-    #     height = round(heights[largest_index]/128)*128
-    #     # get highest resolution given the level (not all slides have the same level dimensions)
-    #     print(f"Transforming WSIs to (w:{width}, h:{height}) tensors...")
-    #     transform = transforms.Compose([
-    #         transforms.ToTensor(),
-    #         transforms.Resize((height, width)),
-    #     ])
-    #     transformed_dict = {key: transform(value) for key, value in tensor_dict.items()}
-    #     return transformed_dict
-
     def _get_slide_idx(self):
         return dict(zip(self.molecular_df.index, self.molecular_df["slide_id"]))
 
     def __len__(self):
-        return self.molecular_df.shape[0]
-
+        if self.sources == ["molecular"]:
+            # use all molecular samples when running single modality
+            return self.molecular_df.shape[0]
+        else:
+            # only use overlap otherwise
+            return len(self.wsi_paths)
     def _get_slide_dict(self):
         """
         Given the download structure of the gdc-client, each slide is stored in a folder
@@ -154,6 +131,11 @@ class TCGADataset(Dataset):
         data_path = Path(self.config.tcga_path).joinpath(f"molecular/tcga_{self.dataset}_all_clean.csv.zip")
         df = pd.read_csv(data_path, compression="zip", header=0, index_col=0, low_memory=False)
 
+        # filter samples for which there are no slides available
+        start_shape = df.shape[0]
+        df = df[df["slide_id"].isin(self.wsi_paths.keys())]
+        print(f"Filtered out {start_shape - df.shape[0]} samples for which there are no slides available")
+
         # assign target column (high vs. low risk in equal parts of survival)
         target_col = "high_risk"
         df.loc[:, target_col] = pd.qcut(x=df["survival_months"], q=2, labels=[1, 0])
@@ -190,18 +172,34 @@ class TCGADataset(Dataset):
                 level = int(slide.level_count / 2)
         if level > slide.level_count - 1:
             level = slide.level_count - 1
-        # print(f"Loading slide at level {level} ")
         # load in region
         size = slide.level_dimensions[level]
         region = slide.read_region((0,0), level, size)
-
+        # print(f"Transforming image {slide_id}")
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Resize((self.wsi_height, self.wsi_width)),
+            # RepeatTransform("c h w -> b c h w", b=1),
+            RearrangeTransform("c h w -> h w c")
         ])
 
         return slide, transform(region)
 
+class RearrangeTransform(object):
+    def __init__(self, pattern):
+        self.pattern = pattern
+
+    def __call__(self, img):
+        img = rearrange(img, self.pattern)
+        return img
+
+class RepeatTransform(object):
+    def __init__(self, pattern, b):
+        self.pattern = pattern
+        self.b = b
+    def __call__(self, img):
+        img = repeat(img, self.pattern, b=self.b)
+        return img
 
 
 if __name__ == '__main__':
