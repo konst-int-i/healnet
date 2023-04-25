@@ -1,11 +1,13 @@
 data_path: /net/archive/export/tcga
 tcga_path: /net/archive/export/tcga/tcga
 gdc_client: ~/gdc-client
+log_path: ~/pycharm/x-perceiver/logs
 
 data:
   level: 3
 
 model:
+  checkpoint_interval: 1
   batch_size: 1
   epochs: 10
   max_lr: 0.005
