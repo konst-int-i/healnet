@@ -2,6 +2,7 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 from x_perceiver.train import majority_classifier_acc
+from x_perceiver.models import NLLSurvLoss
 import numpy as np
 from torchsummary import summary
 from torch import optim
@@ -24,12 +25,13 @@ class Pipeline:
         self.sources = sources
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    def main(self):
 
-        # set up logging
+
+    def main(self):
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.log_path = Path(self.config.log_path).joinpath(timestamp)
         self.log_path.mkdir(parents=True, exist_ok=True)
+        print(f"Logging to {self.log_path}")
 
         train_data, test_data = self.load_data()
 
@@ -124,8 +126,11 @@ class Pipeline:
                                                   max_lr=self.config.model.max_lr,
                                                   epochs=self.config.model.epochs,
                                                   steps_per_epoch=len(train_data))
-        criterion = nn.CrossEntropyLoss()
-
+        if self.target == "survival":
+            criterion = NLLSurvLoss()
+        else:
+            criterion = nn.CrossEntropyLoss()
+        # use survival loss for survival analysis which accounts for censored data
         model.train()
         eval_interval = 1
         majority_train_acc = majority_classifier_acc(train_data.dataset.dataset.target)
@@ -143,7 +148,11 @@ class Pipeline:
                 optimizer.zero_grad()
                 # forward + backward + optimize
                 outputs = model.forward(features)
-                loss = criterion(outputs, target)
+                if self.target == "survival":
+                    loss = criterion()
+                else:
+                    loss = criterion(outputs, target)
+                loss = criterion()
                 loss.backward()
                 optimizer.step()
                 scheduler.step()
@@ -166,7 +175,7 @@ class Pipeline:
 
             # checkpoint model after epoch
             if epoch % self.config.model.checkpoint_interval == 0:
-                torch.save(model.state_dict(), f"{self.config.model.log_path}/model_epoch_{epoch}.pt")
+                torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
 
     def evaluate(self, model: nn.Module, test_data: DataLoader, criterion: nn.Module, optimizer: optim.Optimizer):
         model.eval()

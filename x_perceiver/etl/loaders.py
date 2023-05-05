@@ -1,3 +1,4 @@
+import einops
 from torch.utils.data import Dataset
 from torchvision import transforms
 from x_perceiver.utils import Config
@@ -18,62 +19,81 @@ from box import Box
 
 class TCGADataset(Dataset):
 
-    def __init__(self, dataset: str, config: Box, level: int=3, sources: List = ["molecular", "slides"]):
+    def __init__(self, dataset: str,
+                 config: Box,
+                 level: int=3,
+                 filter_omic: bool = True,
+                 num_classes: int = 2,
+                 target_col = "survival",
+                 sources: List = ["omic", "slides"]):
         """
-        Dataset wrapper to load different TCGA data modalities (molecular and WSI data).
+        Dataset wrapper to load different TCGA data modalities (omic and WSI data).
         Args:
             dataset:
             config:
+            filter_omic: filter omic data (self.feature, self.molecular_df) to only include samples with
+                corresponding WSI data
+            num_classes: number of classes to predict (qcut of survival months)
 
         Examples:
             >>> from x_perceiver.etl.loaders import TCGADataset
             >>> from x_perceiver.utils import Config
             >>> config = Config("config/main.yml").read()
             >>> dataset = TCGADataset("blca", config)
-            # get molecular data
-            >>> dataset.molecular_df
+            # get omic data
+            >>> dataset.omic_df
             # get sample slide
             >>> slide, tensor = dataset.load_wsi(blca.sample_slide_id, resolution="lowest")
+            # get overall sample
+            >>>
         """
         self.dataset = dataset
         self.sources = sources
-        valid_sources = ["molecular", "slides"]
+        self.filter_omic = filter_omic
+        self.num_classes = num_classes
+        valid_sources = ["omic", "slides"]
+        valid_targets = ["high_risk", "censorship", "survival"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
+        assert target_col in valid_targets, f"Invalid target specified. Valid targets are {valid_targets}"
+        self.target_col = target_col
         self.config = config
         self.data_conf = config.data
         self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
-        self.molecular_df = self.load_molecular()
+        self.omic_df = self.load_omic()
         self.level = level
         self.slide_idx: dict = self._get_slide_idx() # {idx (molecular_df): slide_id}
         self.wsi_width, self.wsi_height = self.get_resize_dims(level=self.level)
-        self.target = self.molecular_df["high_risk"]
-        self.features = self.molecular_df.drop(["site", "oncotree_code", "case_id", "slide_id"], axis=1)
+        self.censorship = self.omic_df["censorship"].values
+        self.survival_months = self.omic_df["survival_months"].values
+        self.y_disc = self.omic_df["high_risk"].values
+        self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "high_risk"], axis=1)
         self.get_info(full_detail=False)
 
     def __getitem__(self, index):
         # TODO - implement cache
-        slide_id = self.molecular_df.iloc[index]["slide_id"]
+        slide_id = self.omic_df.iloc[index]["slide_id"]
         # # check that slide is available
-        label = self.target.iloc[index]
-        if len(self.sources) == 1 and self.sources[0] == "molecular":
+        y_disc = self.y_disc[index]
+        censorship = self.censorship[index]
+        if len(self.sources) == 1 and self.sources[0] == "omic":
             mol_tensor = torch.from_numpy(self.features.iloc[index].values)
-            return mol_tensor, label
+            # introduce extra dim for perceiver
+            mol_tensor = einops.repeat(mol_tensor, "feat -> b feat c", b=1, c=1)
+            # mol_tensor = einops.repeat(mol_tensor, "feat -> feat c", c=1)
+            return mol_tensor.double(), censorship, y_disc
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
-            return slide_tensor, label
+            return slide_tensor, censorship, y_disc
         else: # both
             slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
             mol_tensor = torch.from_numpy(self.features.iloc[index].values)
-            return (mol_tensor, slide_tensor), label
-
+            return (mol_tensor, slide_tensor), censorship, y_disc
 
     def get_resize_dims(self, level: int):
         # TODO - validate which dimensions to pick for each level
-        print(self.slide_idx)
         slide_sample = list(self.slide_idx.values())[0]
         slide_path = self.wsi_paths[slide_sample]
         slide = OpenSlide(slide_path)
-        print(slide.level_dimensions[level])
         width = slide.level_dimensions[level][0]
         height = slide.level_dimensions[level][1]
         # take nearest multiple of 128 of height and width (for patches)
@@ -82,12 +102,14 @@ class TCGADataset(Dataset):
         return width, height
 
     def _get_slide_idx(self):
-        return dict(zip(self.molecular_df.index, self.molecular_df["slide_id"]))
+        # filter slide index to only include samples with WSIs available
+        tmp_df = self.omic_df[self.omic_df.slide_id.isin(self.wsi_paths.keys())]
+        return dict(zip(tmp_df.index, tmp_df["slide_id"]))
 
     def __len__(self):
-        if self.sources == ["molecular"]:
-            # use all molecular samples when running single modality
-            return self.molecular_df.shape[0]
+        if self.sources == ["omic"]:
+            # use all omic samples when running single modality
+            return self.omic_df.shape[0]
         else:
             # only use overlap otherwise
             return len(self.wsi_paths)
@@ -112,33 +134,57 @@ class TCGADataset(Dataset):
         slide, tensor = self.load_wsi(self.sample_slide_id, level=self.level)
         slide_path = Path(self.config.tcga_path).joinpath(f"wsi/{self.dataset}/")
         print(f"Dataset: {self.dataset.upper()}")
-        print(f"Molecular data shape: {self.molecular_df.shape}")
+        print(f"Molecular data shape: {self.omic_df.shape}")
         slide_dirs = [f for f in os.listdir(slide_path) if not f.startswith(".")]
         print(f"Total slides available: {len(slide_dirs)}")
-        sample_overlap = (set(self.molecular_df["slide_id"]) & set(self.wsi_paths.keys()))
-        print(f"Molecular/Slide match: {len(sample_overlap)}/{len(self.molecular_df)}")
+        sample_overlap = (set(self.omic_df["slide_id"]) & set(self.wsi_paths.keys()))
+        print(f"Molecular/Slide match: {len(sample_overlap)}/{len(self.omic_df)}")
         # print(f"Slide dimensions: {slide.dimensions}")
         print(f"Slide level count: {slide.level_count}")
         print(f"Slide level dimensions: {slide.level_dimensions}")
         print(f"Slide resize dimensions: w: {self.wsi_width}, h: {self.wsi_height}")
         print(f"Sources selected: {self.sources}")
+        print(f"Target column: {self.target_col}")
 
         if full_detail:
             pprint(dict(slide.properties))
 
+    def show_samples(self, n=1):
+        # sample_df = self.omic_df.sample(n=n)
+        sample_df = self.omic_df[self.omic_df["slide_id"].isin(self.wsi_paths.keys())].sample(n=n)
+        for idx, row in sample_df.iterrows():
+            print(f"Case ID: {row['case_id']}")
+            print(f"Patient age: {row['age']}")
+            print(f"Gender: {'female' if row['is_female'] else 'male'}")
+            print(f"Survival months: {row['survival_months']}")
+            print(f"Survival years:  {np.round(row['survival_months']/12, 1)}")
+            print(f"Censored (survived follow-up period): {'yes' if row['censorship'] else 'no'}")
+            # print(f"Risk: {'high' if row['high_risk'] else 'low'}")
+            # plot wsi
+            slide, slide_tensor = self.load_wsi(row["slide_id"], level=self.level)
+            print(f"Shape:", slide_tensor.shape)
+            plt.figure(figsize=(10, 10))
+            plt.imshow(slide_tensor)
+            plt.show()
 
-    def load_molecular(self) -> pd.DataFrame:
-        data_path = Path(self.config.tcga_path).joinpath(f"molecular/tcga_{self.dataset}_all_clean.csv.zip")
+
+
+
+    def load_omic(self) -> pd.DataFrame:
+        data_path = Path(self.config.tcga_path).joinpath(f"omic/tcga_{self.dataset}_all_clean.csv.zip")
         df = pd.read_csv(data_path, compression="zip", header=0, index_col=0, low_memory=False)
 
         # filter samples for which there are no slides available
-        start_shape = df.shape[0]
-        df = df[df["slide_id"].isin(self.wsi_paths.keys())]
-        print(f"Filtered out {start_shape - df.shape[0]} samples for which there are no slides available")
+        if self.filter_omic:
+            start_shape = df.shape[0]
+            df = df[df["slide_id"].isin(self.wsi_paths.keys())]
+            print(f"Filtered out {start_shape - df.shape[0]} samples for which there are no slides available")
 
         # assign target column (high vs. low risk in equal parts of survival)
         target_col = "high_risk"
-        df.loc[:, target_col] = pd.qcut(x=df["survival_months"], q=2, labels=[1, 0])
+        labels = [i for i in range(self.num_classes)]
+        labels.reverse()
+        df.loc[:, target_col] = pd.qcut(x=df["survival_months"], q=self.num_classes, labels=labels)
 
         return df
 
@@ -208,6 +254,6 @@ if __name__ == '__main__':
     brca = TCGADataset("brca", config)
     blca = TCGADataset("blca", config)
     print(config)
-    print(brca.molecular_df.shape, blca.molecular_df.shape)
+    print(brca.omic_df.shape, blca.omic_df.shape)
     blca.load_wsi("TCGA-2F-A9KT-01Z-00-DX1.ADD6D87C-0CC2-4B1F-A75F-108C9EB3970F", resolution="lowest")
 
