@@ -1,7 +1,7 @@
 data_path: /net/archive/export/tcga
 tcga_path: /net/archive/export/tcga/tcga
-gdc_client: ~/gdc-client
-log_path: ~/pycharm/x-perceiver/logs
+gdc_client: /home/kh701/gdc-client
+log_path: /home/kh701/pycharm/x-perceiver/logs
 
 data:
   level: 3

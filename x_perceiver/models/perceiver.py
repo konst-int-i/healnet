@@ -226,7 +226,8 @@ class Perceiver(nn.Module):
         return_embeddings = False
     ):
         b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
-        assert len(axis) == self.input_axis, 'input data must have the right number of axis'
+        assert len(axis) == self.input_axis, f'input data must have the right number of axis' \
+                                             f'len(axis): {len(axis)}, input_axis: {self.input_axis}'
 
         if self.fourier_encode_data:
             # calculate fourier encoded positions in the range of [-1, 1], for all axis
