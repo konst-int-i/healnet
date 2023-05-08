@@ -12,7 +12,6 @@ class NLLSurvLoss(nn.Module):
     Parameters
     ----------
     alpha: float
-        TODO: document
     eps: float
         Numerical constant; lower bound to avoid taking logs of tiny numbers.
     reduction: str
@@ -39,7 +38,7 @@ class NLLSurvLoss(nn.Module):
                         reduction=self.reduction)
 
 
-# TODO: document better and clean up
+
 def nll_loss(h, y, c, alpha=0.0, eps=1e-7, reduction='mean'):
     """
     The negative log-likelihood loss function for the discrete time to event model (Zadeh and Schmid, 2020).
@@ -53,7 +52,6 @@ def nll_loss(h, y, c, alpha=0.0, eps=1e-7, reduction='mean'):
     c: (n_batches, 1)
         The censoring status indicator.
     alpha: float
-        TODO: document
     eps: float
         Numerical constant; lower bound to avoid taking logs of tiny numbers.
     reduction: str
@@ -75,16 +73,7 @@ def nll_loss(h, y, c, alpha=0.0, eps=1e-7, reduction='mean'):
     # print("S.shape", S.shape, S)
 
     S_padded = torch.cat([torch.ones_like(c), S], 1)
-    # S(-1) = 0, all patients are alive from (-inf, 0) by definition
-    # after padding, S(0) = S[1], S(1) = S[2], etc, h(0) = h[0]
-    # hazards[y] = hazards(1)
-    # S[1] = S(1)
-    # TODO: document and check
 
-    # print("S_padded.shape", S_padded.shape, S_padded)
-
-
-    # TODO: document/better naming
     s_prev = torch.gather(S_padded, dim=1, index=y).clamp(min=eps)
     h_this = torch.gather(hazards, dim=1, index=y).clamp(min=eps)
     s_this = torch.gather(S_padded, dim=1, index=y+1).clamp(min=eps)
