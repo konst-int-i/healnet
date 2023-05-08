@@ -16,6 +16,9 @@ from pathlib import Path
 from datetime import datetime
 pd.set_option('display.max_columns', 50)
 pd.set_option('display.max_rows', 50)
+import wandb
+
+
 
 class Pipeline:
 
@@ -28,6 +31,19 @@ class Pipeline:
         self.survival_analysis = survival_analysis
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        if self.device == "cuda":
+            print(f"Setting default cuda tensor to double")
+            torch.set_default_tensor_type(torch.cuda.DoubleTensor)
+
+        # setup wandb logging
+        wandb_config = {
+            "sources": self.sources,
+        }
+        wandb_config.update(dict(self.config))
+        wandb.init(
+            project="x-perceiver",
+            config = wandb_config,
+        )
 
 
     def main(self):
@@ -39,10 +55,10 @@ class Pipeline:
         train_data, test_data = self.load_data()
 
         model = self.make_model(train_data)
-
+        wandb.watch(model)
         self.train_survival(model, train_data, test_data)
 
-
+        wandb.finish()
 
     def load_data(self):
         data = TCGADataset("blca",
@@ -59,10 +75,10 @@ class Pipeline:
         train, test = torch.utils.data.random_split(data, [train_size, test_size])
         torch.multiprocessing.set_start_method('spawn')
 
-        train_data = DataLoader(train, batch_size=self.config.model.batch_size, shuffle=False, num_workers=os.cpu_count(),
+        train_data = DataLoader(train, batch_size=self.config.train_loop.batch_size, shuffle=False, num_workers=os.cpu_count(),
                                 pin_memory=True, multiprocessing_context="spawn")
 
-        test_data = DataLoader(test, batch_size=self.config.model.batch_size, shuffle=False, num_workers=os.cpu_count(),
+        test_data = DataLoader(test, batch_size=self.config.train_loop.batch_size, shuffle=False, num_workers=os.cpu_count(),
                                 pin_memory=True, multiprocessing_context="spawn")
         return train_data, test_data
 
@@ -81,22 +97,22 @@ class Pipeline:
                 input_axis=2, # second axis (b n_feats c)
                 num_freq_bands=6,
                 depth=3,
-                max_freq=10.,
+                max_freq=2.,
                 num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
-                num_latents = 512,
-                latent_dim = 512,
-            #     num_latents = 16,
-            #     latent_dim = 16,
-                cross_dim_head = 64,
-                latent_dim_head = 64,
-                # cross_dim_head = 8,
-                # latent_dim_head = 8,
+                # num_latents = 512,
+                # latent_dim = 512,
+                num_latents = 32,
+                latent_dim = 32,
+                # cross_dim_head = 64,
+                # latent_dim_head = 64,
+                cross_dim_head = 16,
+                latent_dim_head = 16,
                 cross_heads = 1,
                 latent_heads = 8,
                 attn_dropout = 0.5,  # non-default
                 ff_dropout = 0.5,  # non-default
                 weight_tie_layers = False,
-                fourier_encode_data = True,
+                fourier_encode_data = False,
                 self_per_cross_attn = 1,
                 final_classifier_head = True
             )
@@ -110,8 +126,8 @@ class Pipeline:
                 depth=1,  # number of cross-attention iterations
                 max_freq=10.,
                 num_classes=self.output_dims,
-                # num_classes=len(set(train_data.dataset.dataset.target)),
             )
+
             perceiver.to(self.device) # need to move to GPU to get summary
         # set model precision
         return perceiver
@@ -136,20 +152,18 @@ class Pipeline:
         """
         # model.to(self.device)
         optimizer = optim.SGD(model.parameters(),
-                              lr=self.config.model.lr, momentum=self.config.model.momentum)
+                              lr=self.config.optimizer.lr, momentum=self.config.optimizer.momentum)
         # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
-                                                  max_lr=self.config.model.max_lr,
-                                                  epochs=self.config.model.epochs,
+                                                  max_lr=self.config.optimizer.max_lr,
+                                                  epochs=self.config.train_loop.epochs,
                                                   steps_per_epoch=len(train_data))
 
         criterion = NLLSurvLoss()
         model.train()
-        eval_interval = 1
+        eval_interval = 10
 
-
-        # majority_train_acc = majority_classifier_acc(train_data.dataset.dataset.target)
-        for epoch in range(self.config.model.epochs):
+        for epoch in range(self.config.train_loop.epochs):
             print(f"Epoch {epoch}")
             risk_scores = []
             censorships = []
@@ -202,21 +216,75 @@ class Pipeline:
 
             # calculate epoch-level concordance index
             c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
+            wandb.log({"train_loss": train_loss, "train_c_index": c_index}, step=epoch)
+            print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, c_index))
 
-            print('Epoch: {}, train_loss_surv: {:.4f}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss_surv, train_loss, c_index))
 
             if epoch % eval_interval == 0:
-                print("**************************")
-                print(f"EPOCH {epoch} EVALUATION")
-                print("**************************")
-                # self.evaluate_classification(model, test_data, criterion, optimizer)
+                # print("**************************")
+                # print(f"EPOCH {epoch} EVALUATION")
+                # print("**************************")
+                val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data, loss_reg=loss_reg)
+                wandb.log({"val_loss": val_loss, "val_c_index": val_c_index}, step=epoch)
 
             # checkpoint model after epoch
-            if epoch % self.config.model.checkpoint_interval == 0:
+            if epoch % self.config.train_loop.checkpoint_interval == 0:
                 torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
 
-    def evaluate_survival(self):
-        pass
+    def evaluate_survival_epoch(self,
+                                epoch: int,
+                                model: nn.Module,
+                                test_data: DataLoader,
+                                loss_reg: float=0.0,
+                                **kwargs):
+
+        criterion = NLLSurvLoss()
+        print(f"Running validation...")
+        model.eval()
+        risk_scores = []
+        censorships = []
+        event_times = []
+        val_loss_surv, val_loss = 0.0, 0.0
+
+        for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(test_data)):
+            # only move to GPU now (use CPU for preprocessing)
+            features = features.to(self.device)
+            censorship = censorship.to(self.device)
+            event_time = event_time.to(self.device)
+            y_disc = y_disc.to(self.device)
+
+            y_hat = model.forward(features)
+            hazards = torch.sigmoid(y_hat)
+            survival = torch.cumprod(1-hazards, dim=1)
+            risk = -torch.sum(survival, dim=1).detach().cpu().numpy()
+            loss = criterion(h=y_hat, y=y_disc, c=censorship)
+
+            # log risk, censorship and event time for concordance index
+            risk_scores.append(risk)
+            censorships.append(censorship.detach().cpu().numpy())
+            event_times.append(event_time.detach().cpu().numpy())
+
+            loss_value = loss.item()
+            val_loss_surv += loss_value
+            val_loss += loss_value + loss_reg
+
+
+        # calculate epoch-level stats
+        val_loss_surv /= len(test_data)
+        val_loss /= len(test_data)
+
+        risk_scores_full = np.concatenate(risk_scores)
+        censorships_full = np.concatenate(censorships)
+        event_times_full = np.concatenate(event_times)
+
+        # calculate epoch-level concordance index
+        c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
+
+        print(f"Epoch: {epoch}, val_loss: {val_loss}, val_c_index: {c_index}")
+        # wandb.log({"val_epoch": epoch, "val_loss": val_loss, "val_c_index": c_index})
+
+        model.train()
+        return val_loss, c_index
 
     def evaluate_classification(self, model: nn.Module, test_data: DataLoader, criterion: nn.Module, optimizer: optim.Optimizer):
         model.eval()

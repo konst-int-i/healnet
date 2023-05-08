@@ -3,15 +3,23 @@ tcga_path: /net/archive/export/tcga/tcga
 gdc_client: /home/kh701/gdc-client
 log_path: /home/kh701/pycharm/x-perceiver/logs
 
+sweep: True
+
+
 data:
   level: 3
 
-model:
+train_loop:
   checkpoint_interval: 1
+  eval_interval: 10
   batch_size: 1
-  epochs: 10
+  epochs: 30
+
+optimizer:
   max_lr: 0.005
   lr: 0.001
   momentum: 0.9
 
-
+model:
+  output_dims: 4
+# gridsearch here

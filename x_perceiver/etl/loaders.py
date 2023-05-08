@@ -77,10 +77,12 @@ class TCGADataset(Dataset):
         censorship = self.censorship[index]
         event_time = self.survival_months[index]
         if len(self.sources) == 1 and self.sources[0] == "omic":
-            mol_tensor = torch.from_numpy(self.features.iloc[index].values)
+            mol_tensor = torch.Tensor(self.features.iloc[index].values)
+            # mol_tensor = torch.from_numpy(self.features.iloc[index].values)
             # introduce extra dim for perceiver
             mol_tensor = einops.repeat(mol_tensor, "feat -> b feat c", b=1, c=1)
-            return mol_tensor.double(), censorship, event_time, y_disc
+            return mol_tensor, censorship, event_time, y_disc
+            # return mol_tensor.double(), censorship, event_time, y_disc
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
             return slide_tensor, censorship, event_time, y_disc
@@ -233,7 +235,6 @@ class TCGADataset(Dataset):
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Resize((self.wsi_height, self.wsi_width)),
-            # RepeatTransform("c h w -> b c h w", b=1),
             RearrangeTransform("c h w -> h w c")
         ])
 
