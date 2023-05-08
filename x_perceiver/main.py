@@ -5,6 +5,7 @@ from x_perceiver.train import majority_classifier_acc
 from x_perceiver.models import NLLSurvLoss
 import numpy as np
 from torchsummary import summary
+from sksurv.metrics import concordance_index_censored
 from torch import optim
 from x_perceiver.models.perceiver import Perceiver
 import pandas as pd
@@ -18,11 +19,13 @@ pd.set_option('display.max_rows', 50)
 
 class Pipeline:
 
-    def __init__(self, config_path, sources):
+    def __init__(self, config_path, sources, survival_analysis: bool=True):
         self.config = Config(config_path).read()
+        self.output_dims = int(self.config.model.output_dims)
         valid_sources = ["omic", "slides"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
         self.sources = sources
+        self.survival_analysis = survival_analysis
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -37,7 +40,7 @@ class Pipeline:
 
         model = self.make_model(train_data)
 
-        self.train(model, train_data, test_data)
+        self.train_survival(model, train_data, test_data)
 
 
 
@@ -45,7 +48,9 @@ class Pipeline:
         data = TCGADataset("blca",
                            self.config,
                            level=3,
+                           survival_analysis=True,
                            sources=self.sources,
+                           n_bins=self.output_dims,
                            )
 
         train_size = int(0.8 * len(data))
@@ -77,8 +82,7 @@ class Pipeline:
                 num_freq_bands=6,
                 depth=3,
                 max_freq=10.,
-                num_classes=2,
-                # num_classes=len(set(train_data.dataset.target)), # non-default
+                num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
                 num_latents = 512,
                 latent_dim = 512,
             #     num_latents = 16,
@@ -105,19 +109,31 @@ class Pipeline:
                 num_freq_bands=6,
                 depth=1,  # number of cross-attention iterations
                 max_freq=10.,
-                num_classes=2,
+                num_classes=self.output_dims,
                 # num_classes=len(set(train_data.dataset.dataset.target)),
             )
             perceiver.to(self.device) # need to move to GPU to get summary
         # set model precision
-
-
-
         return perceiver
-        # elif self.sources == ["omic", "slides"]:
-        #     pass
 
-    def train(self, model: nn.Module, train_data: DataLoader, test_data: DataLoader, **kwargs):
+    def train_survival(self,
+                       model: nn.Module,
+                       train_data: DataLoader,
+                       test_data: DataLoader,
+                       loss_reg: float = 0.0,
+                       gc: int = 16,
+                       **kwargs):
+        """
+        Trains model for survival analysis
+        Args:
+            model:
+            train_data:
+            test_data:
+            **kwargs:
+
+        Returns:
+
+        """
         # model.to(self.device)
         optimizer = optim.SGD(model.parameters(),
                               lr=self.config.model.lr, momentum=self.config.model.momentum)
@@ -126,58 +142,83 @@ class Pipeline:
                                                   max_lr=self.config.model.max_lr,
                                                   epochs=self.config.model.epochs,
                                                   steps_per_epoch=len(train_data))
-        if self.target == "survival":
-            criterion = NLLSurvLoss()
-        else:
-            criterion = nn.CrossEntropyLoss()
-        # use survival loss for survival analysis which accounts for censored data
+
+        criterion = NLLSurvLoss()
         model.train()
         eval_interval = 1
-        majority_train_acc = majority_classifier_acc(train_data.dataset.dataset.target)
+
+
+        # majority_train_acc = majority_classifier_acc(train_data.dataset.dataset.target)
         for epoch in range(self.config.model.epochs):
             print(f"Epoch {epoch}")
-            running_loss = 0.0
-            running_acc = 0.0
-            for batch, (features, target) in enumerate(tqdm(train_data)):
+            risk_scores = []
+            censorships = []
+            event_times = []
+            train_loss_surv, train_loss = 0.0, 0.0
+
+            for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
-                features, target = features.to(self.device), target.to(self.device)
+                features = features.to(self.device)
+                censorship = censorship.to(self.device)
+                event_time = event_time.to(self.device)
+                y_disc = y_disc.to(self.device)
+
                 if batch == 0 and epoch == 0: # print model summary
                     print(features.shape)
                     print(features.dtype)
-                    # print(summary(model, tuple(features.shape[1:])))
+
                 optimizer.zero_grad()
                 # forward + backward + optimize
-                outputs = model.forward(features)
-                if self.target == "survival":
-                    loss = criterion()
-                else:
-                    loss = criterion(outputs, target)
-                loss = criterion()
-                loss.backward()
-                optimizer.step()
-                scheduler.step()
-                # print statistics
-                running_loss += loss.item()
-                running_acc += (outputs.argmax(1) == target).sum().item()
+                y_hat = model.forward(features)
+                hazards = torch.sigmoid(y_hat)
+                survival = torch.cumprod(1-hazards, dim=1)
+                risk = -torch.sum(survival, dim=1).detach().cpu().numpy()
+                loss = criterion(h=y_hat, y=y_disc, c=censorship)
 
-                if batch % 20 == 19:  # print every 20 mini-batches
-                    train_loss = np.round(running_loss / 20, 5)
-                    train_acc = np.round(running_acc / 20, 5)
-                    print(f"Batch {batch}, train_loss: {train_loss}, train_acc: {train_acc}, majority_train_acc: {majority_train_acc}")
-                    running_loss = 0.0
-                    running_acc = 0.0
+                # log risk, censorship and event time for concordance index
+                risk_scores.append(risk)
+                censorships.append(censorship.detach().cpu().numpy())
+                event_times.append(event_time.detach().cpu().numpy())
+
+                loss_value = loss.item()
+                train_loss_surv += loss_value
+                train_loss += loss_value + loss_reg
+
+                # backward pass
+                loss = loss / gc + loss_reg # gradient accumulation step
+                loss.backward()
+
+                if (batch + 1) % gc == 0:
+                    optimizer.step()
+                    optimizer.zero_grad()
+
+            # calculate epoch-level stats
+            train_loss_surv /= len(train_data)
+            train_loss /= len(train_data)
+
+            risk_scores_full = np.concatenate(risk_scores)
+            censorships_full = np.concatenate(censorships)
+            event_times_full = np.concatenate(event_times)
+
+            # calculate epoch-level concordance index
+            c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
+
+            print('Epoch: {}, train_loss_surv: {:.4f}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss_surv, train_loss, c_index))
 
             if epoch % eval_interval == 0:
                 print("**************************")
                 print(f"EPOCH {epoch} EVALUATION")
                 print("**************************")
-                self.evaluate(model, test_data, criterion, optimizer)
+                # self.evaluate_classification(model, test_data, criterion, optimizer)
 
             # checkpoint model after epoch
             if epoch % self.config.model.checkpoint_interval == 0:
                 torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
 
-    def evaluate(self, model: nn.Module, test_data: DataLoader, criterion: nn.Module, optimizer: optim.Optimizer):
+    def evaluate_survival(self):
+        pass
+
+    def evaluate_classification(self, model: nn.Module, test_data: DataLoader, criterion: nn.Module, optimizer: optim.Optimizer):
         model.eval()
         majority_val_acc = majority_classifier_acc(y_true=test_data.dataset.dataset.target)
         val_loss = 0.0

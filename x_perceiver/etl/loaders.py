@@ -23,8 +23,9 @@ class TCGADataset(Dataset):
                  config: Box,
                  level: int=3,
                  filter_omic: bool = True,
+                 survival_analysis: bool = True,
                  num_classes: int = 2,
-                 target_col = "survival",
+                 n_bins: int = 4,
                  sources: List = ["omic", "slides"]):
         """
         Dataset wrapper to load different TCGA data modalities (omic and WSI data).
@@ -33,7 +34,8 @@ class TCGADataset(Dataset):
             config:
             filter_omic: filter omic data (self.feature, self.molecular_df) to only include samples with
                 corresponding WSI data
-            num_classes: number of classes to predict (qcut of survival months)
+            n_bins: number of discretised bins for survival analysis
+
 
         Examples:
             >>> from x_perceiver.etl.loaders import TCGADataset
@@ -50,12 +52,11 @@ class TCGADataset(Dataset):
         self.dataset = dataset
         self.sources = sources
         self.filter_omic = filter_omic
+        self.survival_analysis = survival_analysis
         self.num_classes = num_classes
+        self.n_bins = n_bins
         valid_sources = ["omic", "slides"]
-        valid_targets = ["high_risk", "censorship", "survival"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
-        assert target_col in valid_targets, f"Invalid target specified. Valid targets are {valid_targets}"
-        self.target_col = target_col
         self.config = config
         self.data_conf = config.data
         self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
@@ -65,29 +66,28 @@ class TCGADataset(Dataset):
         self.wsi_width, self.wsi_height = self.get_resize_dims(level=self.level)
         self.censorship = self.omic_df["censorship"].values
         self.survival_months = self.omic_df["survival_months"].values
-        self.y_disc = self.omic_df["high_risk"].values
-        self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "high_risk"], axis=1)
+        self.y_disc = self.omic_df["y_disc"].values
+        self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.get_info(full_detail=False)
 
     def __getitem__(self, index):
-        # TODO - implement cache
         slide_id = self.omic_df.iloc[index]["slide_id"]
         # # check that slide is available
         y_disc = self.y_disc[index]
         censorship = self.censorship[index]
+        event_time = self.survival_months[index]
         if len(self.sources) == 1 and self.sources[0] == "omic":
             mol_tensor = torch.from_numpy(self.features.iloc[index].values)
             # introduce extra dim for perceiver
             mol_tensor = einops.repeat(mol_tensor, "feat -> b feat c", b=1, c=1)
-            # mol_tensor = einops.repeat(mol_tensor, "feat -> feat c", c=1)
-            return mol_tensor.double(), censorship, y_disc
+            return mol_tensor.double(), censorship, event_time, y_disc
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
-            return slide_tensor, censorship, y_disc
+            return slide_tensor, censorship, event_time, y_disc
         else: # both
             slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
             mol_tensor = torch.from_numpy(self.features.iloc[index].values)
-            return (mol_tensor, slide_tensor), censorship, y_disc
+            return (mol_tensor, slide_tensor), censorship, event_time, y_disc
 
     def get_resize_dims(self, level: int):
         # TODO - validate which dimensions to pick for each level
@@ -144,7 +144,8 @@ class TCGADataset(Dataset):
         print(f"Slide level dimensions: {slide.level_dimensions}")
         print(f"Slide resize dimensions: w: {self.wsi_width}, h: {self.wsi_height}")
         print(f"Sources selected: {self.sources}")
-        print(f"Target column: {self.target_col}")
+        print(f"Censored share: {np.round(len(self.omic_df[self.omic_df['censorship'] == 1])/len(self.omic_df), 3)}")
+        # print(f"Target column: {self.target_col}")
 
         if full_detail:
             pprint(dict(slide.properties))
@@ -170,7 +171,7 @@ class TCGADataset(Dataset):
 
 
 
-    def load_omic(self) -> pd.DataFrame:
+    def load_omic(self, eps: float = 1e-6) -> pd.DataFrame:
         data_path = Path(self.config.tcga_path).joinpath(f"omic/tcga_{self.dataset}_all_clean.csv.zip")
         df = pd.read_csv(data_path, compression="zip", header=0, index_col=0, low_memory=False)
 
@@ -181,10 +182,17 @@ class TCGADataset(Dataset):
             print(f"Filtered out {start_shape - df.shape[0]} samples for which there are no slides available")
 
         # assign target column (high vs. low risk in equal parts of survival)
-        target_col = "high_risk"
-        labels = [i for i in range(self.num_classes)]
-        labels.reverse()
-        df.loc[:, target_col] = pd.qcut(x=df["survival_months"], q=self.num_classes, labels=labels)
+        label_col = "survival_months"
+        uncensored_df = df[df["censorship"] == 0]
+
+        # take q_bins from uncensored patients only to determine the bins for all patients
+        disc_labels, q_bins = pd.qcut(uncensored_df[label_col], q=self.n_bins, retbins=True, labels=False)
+        q_bins[-1] = df[label_col].max() + eps
+        q_bins[0] = df[label_col].min() - eps
+
+        # now take the bins for all patients
+        df["y_disc"] = pd.cut(df[label_col], bins=q_bins, retbins=False, labels=False, right=False, include_lowest=True).values
+        df["y_disc"] = df["y_disc"].astype(int)
 
         return df
 
