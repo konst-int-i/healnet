@@ -34,6 +34,10 @@ class Pipeline:
             print(f"Setting default cuda tensor to double")
             torch.set_default_tensor_type(torch.cuda.DoubleTensor)
 
+        # fix random seeds for reproducibility
+        torch.manual_seed(self.config.seed)
+        np.random.seed(self.config.seed)
+
         # setup wandb logging
         wandb_config = {}
         wandb_config.update(dict(self.config))

@@ -2,6 +2,7 @@ data_path: /net/archive/export/tcga
 tcga_path: /net/archive/export/tcga/tcga
 gdc_client: /home/kh701/gdc-client
 log_path: /home/kh701/pycharm/x-perceiver/logs
+seed: 42
 
 wandb: True
 
@@ -15,13 +16,13 @@ sources:
 train_loop:
   checkpoint_interval: 1
   eval_interval: 10
-  batch_size: 1
-  epochs: 30
-  loss: ce_survival # valid: nll, ce_survival, cox
+  batch_size: 4
+  epochs: 10
+  loss: nll # valid: nll, ce_survival, cox
 
 optimizer:
   max_lr: 0.005
-  lr: 0.001
+  lr: 0.005
   momentum: 0.9
 
 model:
