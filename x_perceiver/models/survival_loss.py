@@ -103,21 +103,69 @@ class CrossEntropySurvLoss(object):
     def __init__(self, alpha=0.15):
         self.alpha = alpha
 
-    def __call__(self, hazards, S, Y, c, alpha=None):
+    def __call__(self, hazards, survival, y_disc, censorship, alpha=None):
         if alpha is None:
-            return ce_loss(hazards, S, Y, c, alpha=self.alpha)
+            return ce_loss(hazards, survival, y_disc, censorship, alpha=self.alpha)
         else:
-            return ce_loss(hazards, S, Y, c, alpha=alpha)
+            return ce_loss(hazards, survival, y_disc, censorship, alpha=alpha)
 
-def ce_loss(hazards, S, Y, c, alpha=0.4, eps=1e-7):
-    batch_size = len(Y)
-    Y = Y.view(batch_size, 1) # ground truth bin, 1,2,...,k
+def ce_loss(hazards, survival, y_disc, c, alpha=0.4, eps=1e-7):
+    """
+
+    Args:
+        hazards:
+        survival (torch.Tensor): Survival
+        y_disc (torch.Tensor): ground truth bin (y_disc)
+        c (torch.Tensor): censorship status indicator
+        alpha:
+        eps:
+
+    Returns:
+
+    """
+    batch_size = len(y_disc)
+    y_disc = y_disc.view(batch_size, 1) # ground truth bin, 1,2,...,k
     c = c.view(batch_size, 1).float() #censorship status, 0 or 1
-    if S is None:
-        S = torch.cumprod(1 - hazards, dim=1) # surival is cumulative product of 1 - hazards
-    S_padded = torch.cat([torch.ones_like(c), S], 1)
-    reg = -(1 - c) * (torch.log(torch.gather(S_padded, 1, Y)+eps) + torch.log(torch.gather(hazards, 1, Y).clamp(min=eps)))
-    ce_l = - c * torch.log(torch.gather(S, 1, Y).clamp(min=eps)) - (1 - c) * torch.log(1 - torch.gather(S, 1, Y).clamp(min=eps))
+    if survival is None:
+        survival = torch.cumprod(1 - hazards, dim=1) # surival is cumulative product of 1 - hazards
+    S_padded = torch.cat([torch.ones_like(c), survival], 1)
+    reg = -(1 - c) * (torch.log(torch.gather(S_padded, 1, y_disc) + eps) + torch.log(torch.gather(hazards, 1, y_disc).clamp(min=eps)))
+    ce_l = - c * torch.log(torch.gather(survival, 1, y_disc).clamp(min=eps)) - (1 - c) * torch.log(1 - torch.gather(survival, 1, y_disc).clamp(min=eps))
     loss = (1-alpha) * ce_l + alpha * reg
     loss = loss.mean()
     return loss
+
+
+class CoxPHSurvLoss(nn.Module):
+
+    """
+    CoxPHSurvLoss: Cox Proportional Hazards Loss Function. Read more about this on
+    https://en.wikipedia.org/wiki/Proportional_hazards_model
+    """
+    def __init__(self):
+        super().__init__()
+
+    def __call__(self, hazards, survival, censorship, **kwargs):
+        """
+
+        Args:
+            survival (torch.Tensor): calculated as torch.cumprod(1 - hazards, dim=1)
+            censorship (torch.Tensor): censoring status indicator
+            **kwargs:
+
+        Returns:
+            float: cox loss
+        """
+        # This calculation credit to Travers Ching https://github.com/traversc/cox-nnet
+        # Cox-nnet: An artificial neural network method for prognosis prediction of high-throughput omics data
+        current_batch_len = len(survival)
+        R_mat = np.zeros([current_batch_len, current_batch_len], dtype=int)
+        for i in range(current_batch_len):
+            for j in range(current_batch_len):
+                R_mat[i,j] = survival[j] >= survival[i]
+
+        R_mat = torch.FloatTensor(R_mat).to(device)
+        theta = hazards.reshape(-1)
+        exp_theta = torch.exp(theta)
+        loss_cox = -torch.mean((theta - torch.log(torch.sum(exp_theta*R_mat, dim=1))) * (1 - censorship))
+        return loss_cox

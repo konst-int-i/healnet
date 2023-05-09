@@ -2,13 +2,14 @@ import torch
 import torch.nn as nn
 from tqdm import tqdm
 from x_perceiver.train import majority_classifier_acc
-from x_perceiver.models import NLLSurvLoss
+from x_perceiver.models import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss
 import numpy as np
 from torchsummary import summary
 from sksurv.metrics import concordance_index_censored
 from torch import optim
 from x_perceiver.models.perceiver import Perceiver
 import pandas as pd
+from box import Box
 from torch.utils.data import Dataset, DataLoader
 from x_perceiver.utils import Config
 from x_perceiver.etl import TCGADataset
@@ -22,12 +23,10 @@ import wandb
 
 class Pipeline:
 
-    def __init__(self, config_path, sources, survival_analysis: bool=True):
-        self.config = Config(config_path).read()
+    def __init__(self, config: Box, survival_analysis: bool=True, wandb_name: str=None):
+        self.config = config
         self.output_dims = int(self.config.model.output_dims)
-        valid_sources = ["omic", "slides"]
-        assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
-        self.sources = sources
+        self.sources = self.config.sources
         self.survival_analysis = survival_analysis
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -36,14 +35,28 @@ class Pipeline:
             torch.set_default_tensor_type(torch.cuda.DoubleTensor)
 
         # setup wandb logging
-        wandb_config = {
-            "sources": self.sources,
-        }
+        wandb_config = {}
         wandb_config.update(dict(self.config))
         wandb.init(
             project="x-perceiver",
             config = wandb_config,
+            name=wandb_name,
         )
+
+
+    def _check_config(self) -> None:
+        """
+        Assert that the config only contains valid arguments
+        Returns:
+            None
+        """
+        valid_sources = ["omic", "slides"]
+        assert all([source in valid_sources for source in self.config.sources]), f"Invalid source specified. Valid sources are {valid_sources}"
+
+        valid_losses = ["nll", "ce_survival", "cox"]
+        assert self.config.loss in valid_losses, f"Invalid loss specified. Valid losses are {valid_losses}"
+
+        return None
 
 
     def main(self):
@@ -159,7 +172,6 @@ class Pipeline:
                                                   epochs=self.config.train_loop.epochs,
                                                   steps_per_epoch=len(train_data))
 
-        criterion = NLLSurvLoss()
         model.train()
         eval_interval = 10
 
@@ -172,10 +184,10 @@ class Pipeline:
 
             for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
-                features = features.to(self.device)
-                censorship = censorship.to(self.device)
-                event_time = event_time.to(self.device)
-                y_disc = y_disc.to(self.device)
+                features = features.to(self.device) # features available for patient
+                censorship = censorship.to(self.device) # status 0 or 1
+                event_time = event_time.to(self.device) # survival months (continuous)
+                y_disc = y_disc.to(self.device) # discretized survival time bucket
 
                 if batch == 0 and epoch == 0: # print model summary
                     print(features.shape)
@@ -183,11 +195,19 @@ class Pipeline:
 
                 optimizer.zero_grad()
                 # forward + backward + optimize
-                y_hat = model.forward(features)
-                hazards = torch.sigmoid(y_hat)
-                survival = torch.cumprod(1-hazards, dim=1)
-                risk = -torch.sum(survival, dim=1).detach().cpu().numpy()
-                loss = criterion(h=y_hat, y=y_disc, c=censorship)
+                y_hat = model.forward(features)  # model predictions of survival time bucket (shape is n_bins)
+                hazards = torch.sigmoid(y_hat)  # sigmoid to get hazards from predictions for surv analysis
+                survival = torch.cumprod(1-hazards, dim=1)  # as per paper, survival = cumprod(1-hazards)
+                risk = -torch.sum(survival, dim=1).detach().cpu().numpy()  # risk = -sum(survival)
+                if self.config.train_loop.loss == "nll":
+                    loss_fn = NLLSurvLoss()
+                    loss = loss_fn(h=y_hat, y=y_disc, c=censorship)
+                elif self.config.train_loop.loss == "ce_survival":
+                    loss_fn = CrossEntropySurvLoss()
+                    loss = loss_fn(hazards=hazards, survival=survival, y_disc=y_disc, censorship=censorship)
+                elif self.config.train_loop.loss == "cox":
+                    loss_fn = CoxPHSurvLoss()
+                    loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
                 # log risk, censorship and event time for concordance index
                 risk_scores.append(risk)
@@ -238,7 +258,7 @@ class Pipeline:
                                 loss_reg: float=0.0,
                                 **kwargs):
 
-        criterion = NLLSurvLoss()
+        # criterion = NLLSurvLoss()
         print(f"Running validation...")
         model.eval()
         risk_scores = []
@@ -257,7 +277,16 @@ class Pipeline:
             hazards = torch.sigmoid(y_hat)
             survival = torch.cumprod(1-hazards, dim=1)
             risk = -torch.sum(survival, dim=1).detach().cpu().numpy()
-            loss = criterion(h=y_hat, y=y_disc, c=censorship)
+
+            if self.config.train_loop.loss == "nll":
+                loss_fn = NLLSurvLoss()
+                loss = loss_fn(h=y_hat, y=y_disc, c=censorship)
+            elif self.config.train_loop.loss == "ce_survival":
+                loss_fn = CrossEntropySurvLoss()
+                loss = loss_fn(hazards=hazards, survival=survival, y_disc=y_disc, censorship=censorship)
+            elif self.config.train_loop.loss == "cox":
+                loss_fn = CoxPHSurvLoss()
+                loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
             # log risk, censorship and event time for concordance index
             risk_scores.append(risk)
@@ -308,11 +337,20 @@ class Pipeline:
 if __name__ == "__main__":
     import os
     print(os.getcwd())
-
+    config_path="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml"
+    config = Config(config_path).read()
     pipeline = Pipeline(
-        config_path="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml",
-        # sources=["omic"],
-        sources=["slides"]
-    )
+            config=config,
+        )
     pipeline.main()
 
+
+    # losses = ["nll", "ce_survival"]
+    # for loss in losses:
+    #     print(loss)
+    #     config["train_loop"]["loss"] = loss
+    #     display_name = f"omic_30ep_{config['train_loop']['loss']}_loss"
+    #     pipeline = Pipeline(
+    #         config=config,
+    #     )
+    #     pipeline.main()
