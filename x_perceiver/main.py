@@ -99,22 +99,31 @@ class Pipeline:
         print(f"Train samples: {train_size}, Test samples: {test_size}")
         train, test = torch.utils.data.random_split(data, [train_size, test_size])
 
-        if self.config.model_params.class_weights:
-            # class weighting only for training data
-            _, counts = np.unique(train.dataset.y_disc, return_counts=True)
-            self.class_weight = 1. / counts
-        #     sample_weights = np.array([self.class_weight[t] for t in train.dataset.y_disc])
-        #     sampler = torch.utils.data.WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights))
-        # pass_sampler = sampler if self.config.model_params.class_weights else None
+        # calculate class weights for imbalanced datasets (if model_params.class_weights is True)
+        weight_sampler = self._calc_class_weights(train)
 
         train_data = DataLoader(train,
                                 batch_size=self.config.train_loop.batch_size,
                                 shuffle=False, num_workers=os.cpu_count(),
-                                pin_memory=True, multiprocessing_context="spawn")
+                                pin_memory=True, multiprocessing_context="spawn", sampler=weight_sampler)
 
         test_data = DataLoader(test, batch_size=self.config.train_loop.batch_size, shuffle=False, num_workers=os.cpu_count(),
                                 pin_memory=True, multiprocessing_context="spawn")
         return train_data, test_data
+
+    def _calc_class_weights(self, train):
+
+        if self.config.model_params.class_weights:
+            train_targets = np.array(train.dataset.y_disc)[train.indices]
+            _, counts = np.unique(train_targets, return_counts=True)
+            self.class_weight = 1. / counts
+            sample_weights = np.array([self.class_weight[t] for t in train_targets])
+            sample_weights = torch.from_numpy(sample_weights)
+            sampler = torch.utils.data.WeightedRandomSampler(weights=sample_weights.type('torch.DoubleTensor'),
+                                                                 num_samples=len(sample_weights))
+            return sampler
+        else:
+            return None
 
     def make_model(self, train_data: DataLoader):
         """
