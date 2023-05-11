@@ -9,22 +9,32 @@ wandb: True
 data:
   level: 3
 
+task: classification # [survival, classification]
 sources:
   - omic
 #  - slides
 
+survival: # all parameters related to survival task
+  loss: nll # valid: nll, ce_survival, cox
+
+clf:
+  n_classes: 4
+
+
 train_loop:
   checkpoint_interval: 1
   eval_interval: 10
-  batch_size: 4
-  epochs: 10
-  loss: nll # valid: nll, ce_survival, cox
+  batch_size: 2
+  epochs: 30
 
 optimizer:
   max_lr: 0.005
-  lr: 0.005
+  lr: 0.001
   momentum: 0.9
 
-model:
+
+model_params:
   output_dims: 4
-# gridsearch here
+  weight_decay: True
+  class_weights: True # weight classes by inverse frequency
+

@@ -6,6 +6,7 @@ from openslide import OpenSlide
 import os
 import torch
 import pprint
+from functools import partial
 from einops import rearrange, repeat
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -67,6 +68,7 @@ class TCGADataset(Dataset):
         self.censorship = self.omic_df["censorship"].values
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
+
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.get_info(full_detail=False)
 
@@ -78,7 +80,6 @@ class TCGADataset(Dataset):
         event_time = self.survival_months[index]
         if len(self.sources) == 1 and self.sources[0] == "omic":
             mol_tensor = torch.Tensor(self.features.iloc[index].values)
-            # mol_tensor = torch.from_numpy(self.features.iloc[index].values)
             # introduce extra dim for perceiver
             mol_tensor = einops.repeat(mol_tensor, "feat -> b feat c", b=1, c=1)
             return mol_tensor, censorship, event_time, y_disc
@@ -185,14 +186,14 @@ class TCGADataset(Dataset):
 
         # assign target column (high vs. low risk in equal parts of survival)
         label_col = "survival_months"
-        uncensored_df = df[df["censorship"] == 0]
+        uncensored_df = df[df["censorship"] == 0] # patients with an event (e.g., death)
 
-        # take q_bins from uncensored patients only to determine the bins for all patients
+        # take q_bins from uncensored patients
         disc_labels, q_bins = pd.qcut(uncensored_df[label_col], q=self.n_bins, retbins=True, labels=False)
         q_bins[-1] = df[label_col].max() + eps
         q_bins[0] = df[label_col].min() - eps
 
-        # now take the bins for all patients
+        # use bin cuts to discretize all patients
         df["y_disc"] = pd.cut(df[label_col], bins=q_bins, retbins=False, labels=False, right=False, include_lowest=True).values
         df["y_disc"] = df["y_disc"].astype(int)
 
@@ -234,11 +235,29 @@ class TCGADataset(Dataset):
         # print(f"Transforming image {slide_id}")
         transform = transforms.Compose([
             transforms.ToTensor(),
+            transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
             transforms.Resize((self.wsi_height, self.wsi_width)),
             RearrangeTransform("c h w -> h w c")
         ])
+        region_tensor = transform(region)
+        # cast as float16
+        # region_tensor = region_tensor.to(dtype=torch.float16)
 
-        return slide, transform(region)
+        return slide, region_tensor
+
+def to_tensor(img, dtype=torch.float32) -> torch.Tensor:
+    """
+    Helper function to convert PIL image to torch tensor and change the dtype.
+    This way, we can pass this function throough the transforms.Compose
+    Args:
+        img: PIL image
+        dtype: desired dtype of the tensor
+
+    Returns:
+        torch.Tensor: tensor of dtype
+    """
+    return transforms.ToTensor()(img).to(dtype=dtype)
+
 
 class RearrangeTransform(object):
     def __init__(self, pattern):
