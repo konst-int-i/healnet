@@ -24,10 +24,10 @@ clf:
 
 
 train_loop:
-  checkpoint_interval: 1
+  checkpoint_interval: 10
   eval_interval: 10
   batch_size: 8
-  epochs: 20
+  epochs: 1
 
 optimizer:
   max_lr: 0.005
@@ -40,19 +40,18 @@ model_params:
   output_dims: 4
   weight_decay: True
   class_weights: True # weight classes by inverse frequency
-  omic:
-    num_freq_bands: 6
-    depth: 6
-    max_freq: 2.
-    num_latents: 32
-    latent_dim: 32
-    cross_dim_head: 16
-    latent_dim_head: 16
-    cross_heads: 1
-    latent_heads: 8
-    attn_dropout: 0.5
-    ff_dropout: 0.5
-    fourier_encode_data: True
-    self_per_cross_attn: 1
+  num_freq_bands: 6
+  depth: 6
+  max_freq: 2.
+  num_latents: 32
+  latent_dim: 32
+  cross_dim_head: 16
+  latent_dim_head: 16
+  cross_heads: 1
+  latent_heads: 8
+  attn_dropout: 0.5
+  ff_dropout: 0.5
+  fourier_encode_data: True
+  self_per_cross_attn: 1
 
 

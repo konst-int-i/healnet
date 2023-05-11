@@ -1,3 +1,6 @@
+import sys
+sys.path.append("/home/kh701/pycharm/x-perceiver/")
+
 import torch
 import torch.nn as nn
 from tqdm import tqdm
@@ -39,15 +42,19 @@ class Pipeline:
         torch.manual_seed(self.config.seed)
         np.random.seed(self.config.seed)
 
+        self.wandb_setup(wandb_name)
+
+    def wandb_setup(self, wandb_name):
         # setup wandb logging
         wandb_config = {}
         wandb_config.update(dict(self.config))
         wandb.init(
             project="x-perceiver",
-            config = wandb_config,
+            config=wandb_config,
             name=wandb_name,
         )
-
+        # assign config back to self to allow for parameter sweeps
+        self.config = Box(dict(wandb.config))
 
     def _check_config(self) -> None:
         """
@@ -142,21 +149,21 @@ class Pipeline:
                 model = Perceiver(
                     input_channels=1,
                     input_axis=2, # second axis (b n_feats c)
-                    num_freq_bands=self.config.model_params.omic.num_freq_bands,
-                    depth=self.config.model_params.omic.depth,
-                    max_freq=self.config.model_params.omic.max_freq,
+                    num_freq_bands=self.config.model_params.num_freq_bands,
+                    depth=self.config.model_params.depth,
+                    max_freq=self.config.model_params.max_freq,
                     num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
-                    num_latents = self.config.model_params.omic.num_latents,
-                    latent_dim = self.config.model_params.omic.latent_dim,
-                    cross_dim_head = self.config.model_params.omic.cross_dim_head,
-                    latent_dim_head = self.config.model_params.omic.latent_dim_head,
-                    cross_heads = self.config.model_params.omic.cross_heads,
-                    latent_heads = self.config.model_params.omic.latent_heads,
-                    attn_dropout = self.config.model_params.omic.attn_dropout,  # non-default
-                    ff_dropout = self.config.model_params.omic.ff_dropout,  # non-default
+                    num_latents = self.config.model_params.num_latents,
+                    latent_dim = self.config.model_params.latent_dim,
+                    cross_dim_head = self.config.model_params.cross_dim_head,
+                    latent_dim_head = self.config.model_params.latent_dim_head,
+                    cross_heads = self.config.model_params.cross_heads,
+                    latent_heads = self.config.model_params.latent_heads,
+                    attn_dropout = self.config.model_params.attn_dropout,  # non-default
+                    ff_dropout = self.config.model_params.ff_dropout,  # non-default
                     weight_tie_layers = False,
-                    fourier_encode_data = self.config.model_params.omic.fourier_encode_data,
-                    self_per_cross_attn = self.config.model_params.omic.self_per_cross_attn,
+                    fourier_encode_data = self.config.model_params.fourier_encode_data,
+                    self_per_cross_attn = self.config.model_params.self_per_cross_attn,
                     final_classifier_head = True
                 )
                 model.float()
