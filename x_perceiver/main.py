@@ -65,6 +65,9 @@ class Pipeline:
         valid_tasks = ["survival", "classification"]
         assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
 
+        valid_models = ["perceiver", "custom"]
+        assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
+
         return None
 
 
@@ -134,57 +137,62 @@ class Pipeline:
         Returns:
             nn.Module: model used for training
         """
-        if self.sources == ["omic"]:
-            perceiver = Perceiver(
-                input_channels=1,
-                input_axis=2, # second axis (b n_feats c)
-                num_freq_bands=6,
-                depth=3,
-                max_freq=2.,
-                num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
-                # num_latents = 512,
-                # latent_dim = 512,
-                num_latents = 32,
-                latent_dim = 32,
-                # cross_dim_head = 64,
-                # latent_dim_head = 64,
-                cross_dim_head = 16,
-                latent_dim_head = 16,
-                cross_heads = 1,
-                latent_heads = 8,
-                attn_dropout = 0.5,  # non-default
-                ff_dropout = 0.5,  # non-default
-                weight_tie_layers = False,
-                fourier_encode_data = False,
-                self_per_cross_attn = 1,
-                final_classifier_head = True
-            )
-            perceiver.float()
-            feat, _, _, _ = next(iter(train_data))
-            perceiver.to(self.device)
-            summary(perceiver, input_size=feat.shape[1:])
-        elif self.sources == ["slides"]:
-            perceiver = Perceiver(
-                input_channels=3, # RGB, dropped alpha channel
-                input_axis=2,
-                num_freq_bands=6,
-                depth=1,  # number of cross-attention iterations
-                max_freq=10.,
-                num_classes=self.output_dims,
-                num_latents=256,
-                latent_dim=256,  # latent dim of transformer
-                cross_dim_head=32,
-                latent_dim_head=32,
-                attn_dropout=0.5,
-                ff_dropout=0.5,
-                cross_heads=1,
-                final_classifier_head=True
-            )
-            perceiver.to(self.device) # need to move to GPU to get summary
-            feat, _, _, _ = next(iter(train_data))
-            summary(perceiver, input_size=feat.shape[1:]) # omit batch dim
-        # set model precision
-        return perceiver
+        if self.config.model == "perceiver":
+            if self.sources == ["omic"]:
+                model = Perceiver(
+                    input_channels=1,
+                    input_axis=2, # second axis (b n_feats c)
+                    num_freq_bands=self.config.model_params.omic.num_freq_bands,
+                    depth=self.config.model_params.omic.depth,
+                    max_freq=self.config.model_params.omic.max_freq,
+                    num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
+                    num_latents = self.config.model_params.omic.num_latents,
+                    latent_dim = self.config.model_params.omic.latent_dim,
+                    cross_dim_head = self.config.model_params.omic.cross_dim_head,
+                    latent_dim_head = self.config.model_params.omic.latent_dim_head,
+                    cross_heads = self.config.model_params.omic.cross_heads,
+                    latent_heads = self.config.model_params.omic.latent_heads,
+                    attn_dropout = self.config.model_params.omic.attn_dropout,  # non-default
+                    ff_dropout = self.config.model_params.omic.ff_dropout,  # non-default
+                    weight_tie_layers = False,
+                    fourier_encode_data = self.config.model_params.omic.fourier_encode_data,
+                    self_per_cross_attn = self.config.model_params.omic.self_per_cross_attn,
+                    final_classifier_head = True
+                )
+                model.float()
+                feat, _, _, _ = next(iter(train_data))
+                model.to(self.device)
+                summary(model, input_size=feat.shape[1:])
+            elif self.sources == ["slides"]:
+                model = Perceiver(
+                    input_channels=3, # RGB, dropped alpha channel
+                    input_axis=2,
+                    num_freq_bands=6,
+                    depth=1,  # number of cross-attention iterations
+                    max_freq=10.,
+                    num_classes=self.output_dims,
+                    num_latents=256,
+                    latent_dim=256,  # latent dim of transformer
+                    cross_dim_head=32,
+                    latent_dim_head=32,
+                    attn_dropout=0.5,
+                    ff_dropout=0.5,
+                    cross_heads=1,
+                    final_classifier_head=True
+                )
+                model.to(self.device) # need to move to GPU to get summary
+                feat, _, _, _ = next(iter(train_data))
+                summary(model, input_size=feat.shape[1:]) # omit batch dim
+        elif self.config.model == "custom":
+            # modality-specific models
+            if self.sources == ["omic"]:
+                # TODO: implement custom model
+                model=None
+                pass
+            elif self.sources == ["slides"]:
+                model = None
+                pass
+        return model
 
 
     def train_clf(self,
@@ -223,7 +231,6 @@ class Pipeline:
         for epoch in range(self.config.train_loop.epochs):
             print(f"Epoch {epoch}")
             running_loss = 0.0
-            # running_acc = 0.0
             predictions = []
             labels = []
             for batch, (features, _, _, y_disc) in enumerate(tqdm(train_data)):
@@ -252,7 +259,7 @@ class Pipeline:
             train_confusion_matrix = confusion_matrix(y_true=labels, y_pred=predictions)
             # train_auc = np.round(roc_auc_score(y_true=epoch_labels, y_score=epoch_predictions, average="weighted", multi_class="ovr"), 5)
             # predict entire train set
-            print(f"Batch {batch}, train_loss: {train_loss}, "
+            print(f"Batch {batch+1}, train_loss: {train_loss}, "
                   f"train_acc: {train_acc}, "
                   f"train_f1: {train_f1}, "
                   f"majority_train_acc: {majority_train_acc}")
@@ -285,16 +292,16 @@ class Pipeline:
         labels = []
         with torch.no_grad():
             for batch, (features, _, _, y_disc) in enumerate(test_data):
-                labels.append(y_disc.item())
+                labels.append(y_disc.tolist())
                 features, y_disc = features.to(self.device), y_disc.to(self.device)
                 outputs = model.forward(features)
                 loss = criterion(outputs, y_disc)
                 val_loss += loss.item()
                 val_acc += (outputs.argmax(1) == y_disc).sum().item()
-                predictions.append(outputs.argmax(1).cpu().item())
+                predictions.append(outputs.argmax(1).cpu().tolist())
         val_loss = np.round(val_loss / len(test_data), 5)
-        # epoch_predictions = np.concatenate(predictions)
-        # epoch_labels = np.concatenate(labels)
+        predictions = np.concatenate(predictions)
+        labels = np.concatenate(labels)
         val_acc = np.round(accuracy_score(labels, predictions), 5)
         val_f1 = np.round(f1_score(labels, predictions, average="weighted"), 5)
         val_conf_matrix = confusion_matrix(labels, predictions)
@@ -306,7 +313,6 @@ class Pipeline:
         wandb.log({"val_loss": val_loss,
                    "val_acc": val_acc,
                    "val_f1": val_f1,
-                   # "majority_val_acc": majority_val_acc
                    })
         model.train()
 
