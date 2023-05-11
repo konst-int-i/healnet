@@ -61,7 +61,16 @@ class TCGADataset(Dataset):
         self.config = config
         self.data_conf = config.data
         self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
+
+        # pre-load and transform omic data
         self.omic_df = self.load_omic()
+        self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
+        self.omic_tensor = torch.Tensor(self.features.values)
+        self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n b feat c", b=1, c=1)
+
+        # pre-load and transform slide data
+
+
         self.level = level
         self.slide_idx: dict = self._get_slide_idx() # {idx (molecular_df): slide_id}
         self.wsi_width, self.wsi_height = self.get_resize_dims(level=self.level)
@@ -69,7 +78,6 @@ class TCGADataset(Dataset):
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
 
-        self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.get_info(full_detail=False)
 
     def __getitem__(self, index):
@@ -79,10 +87,11 @@ class TCGADataset(Dataset):
         censorship = self.censorship[index]
         event_time = self.survival_months[index]
         if len(self.sources) == 1 and self.sources[0] == "omic":
-            mol_tensor = torch.Tensor(self.features.iloc[index].values)
+            omic_tensor = self.omic_tensor[index]
+            # mol_tensor = torch.Tensor(self.features.iloc[index].values)
             # introduce extra dim for perceiver
-            mol_tensor = einops.repeat(mol_tensor, "feat -> b feat c", b=1, c=1)
-            return mol_tensor, censorship, event_time, y_disc
+            # mol_tensor = einops.repeat(mol_tensor, "feat -> b feat c", b=1, c=1)
+            return omic_tensor, censorship, event_time, y_disc
             # return mol_tensor.double(), censorship, event_time, y_disc
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
