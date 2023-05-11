@@ -24,13 +24,14 @@ clf:
 train_loop:
   checkpoint_interval: 1
   eval_interval: 10
-  batch_size: 2
+  batch_size: 1
   epochs: 30
 
 optimizer:
   max_lr: 0.005
   lr: 0.001
   momentum: 0.9
+  weight_decay: 0.001 # or None
 
 
 model_params:

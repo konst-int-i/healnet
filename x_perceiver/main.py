@@ -103,14 +103,14 @@ class Pipeline:
             # class weighting only for training data
             _, counts = np.unique(train.dataset.y_disc, return_counts=True)
             self.class_weight = 1. / counts
-            sample_weights = np.array([self.class_weight[t] for t in train.y_disc])
-            sampler = torch.utils.data.WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights))
-        pass_sampler = sampler if self.config.train_loop.use_sampler else None
+        #     sample_weights = np.array([self.class_weight[t] for t in train.dataset.y_disc])
+        #     sampler = torch.utils.data.WeightedRandomSampler(weights=sample_weights, num_samples=len(sample_weights))
+        # pass_sampler = sampler if self.config.model_params.class_weights else None
 
         train_data = DataLoader(train,
                                 batch_size=self.config.train_loop.batch_size,
                                 shuffle=False, num_workers=os.cpu_count(),
-                                pin_memory=True, multiprocessing_context="spawn", sampler=pass_sampler)
+                                pin_memory=True, multiprocessing_context="spawn")
 
         test_data = DataLoader(test, batch_size=self.config.train_loop.batch_size, shuffle=False, num_workers=os.cpu_count(),
                                 pin_memory=True, multiprocessing_context="spawn")
@@ -194,7 +194,10 @@ class Pipeline:
         """
         print(f"Training classification model")
         optimizer = optim.SGD(model.parameters(),
-                              lr=self.config.optimizer.lr, momentum=self.config.optimizer.momentum)
+                              lr=self.config.optimizer.lr,
+                              momentum=self.config.optimizer.momentum,
+                              weight_decay=self.config.optimizer.weight_decay
+                              )
         # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
                                                   max_lr=self.config.optimizer.max_lr,
@@ -203,6 +206,7 @@ class Pipeline:
         loss_weight = torch.tensor(self.class_weight).to(self.device) if self.config.model_params.class_weights else None
 
         criterion = nn.CrossEntropyLoss(weight=loss_weight)
+        # criterion = nn.CrossEntropyLoss()
         # use survival loss for survival analysis which accounts for censored data
         model.train()
 
