@@ -203,10 +203,10 @@ class Pipeline:
                                                   max_lr=self.config.optimizer.max_lr,
                                                   epochs=self.config.train_loop.epochs,
                                                   steps_per_epoch=len(train_data))
-        loss_weight = torch.tensor(self.class_weight).to(self.device) if self.config.model_params.class_weights else None
+        loss_weight = torch.tensor(self.class_weight).float().to(self.device) if self.config.model_params.class_weights else None
 
         criterion = nn.CrossEntropyLoss(weight=loss_weight)
-        # criterion = nn.CrossEntropyLoss()
+
         # use survival loss for survival analysis which accounts for censored data
         model.train()
 
