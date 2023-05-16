@@ -53,7 +53,7 @@ class Pipeline:
     def wandb_setup(self) -> None:
 
         if args.hyperparameter_sweep:
-            with open("sweep.yaml", "r") as f:
+            with open("config/sweep.yaml", "r") as f:
                 sweep_config = yaml.safe_load(f)
 
             sweep_id = wandb.sweep(sweep=sweep_config, project="x-perceiver")

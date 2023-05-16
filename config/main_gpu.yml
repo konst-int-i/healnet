@@ -27,7 +27,7 @@ train_loop:
   checkpoint_interval: 10
   eval_interval: 10
   batch_size: 8
-  epochs: 1
+  epochs: 10
 
 optimizer:
   max_lr: 0.005
