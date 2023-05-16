@@ -60,4 +60,4 @@ You can launch a hyperparameter search by passing the `--hyperparameter_sweep` a
 python3 x_perceiver/main.py --hyperparameter_sweep
 ```
 
-Note that the sweep parameters are specified in the `sweep.yaml` file. If a parameter is not specified as part of the parameter sweep, the program will default to whatever is configured in `config/main_gpu.yml`
+Note that the sweep parameters are specified in the `config/sweep.yaml` file. If a parameter is not specified as part of the parameter sweep, the program will default to whatever is configured in `config/main_gpu.yml`
