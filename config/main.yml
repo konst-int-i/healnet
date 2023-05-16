@@ -1,8 +1,34 @@
 data_path: data/
 tcga_path: data/tcga/
-#gdc_client: /Applications/gdc-client # location of gdc client executable
 gdc_client: ./gdc-client
+log_path: logs/
+
+seed: 42
+
+wandb: True
 
 data:
-#  wsi_resolution: lowest # lowest, highest, or mid
+  level: 3
+
+task: survival  # [survival, classification]
+#model: perceiver  # [perceiver, specialist_transformer]
+sources:
+  - omic
+#  - slides
+
+train_loop:
+  checkpoint_interval: 1
+  eval_interval: 10
+  batch_size: 4
+  epochs: 10
+  loss: nll # valid: nll, ce_survival, cox
+
+optimizer:
+  max_lr: 0.005
+  lr: 0.001
+  momentum: 0.9
+
+
+model_params:
+  output_dims: 4
 
