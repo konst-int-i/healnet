@@ -92,3 +92,28 @@ def _overwrite_with_user_specific_file(config: Box, filename: str) -> Box:
         config.merge_update(user_config)
 
     return config
+
+
+
+def flatten_config(dictionary, parent_key='', sep='.'):
+    """
+    Flatten a nested dictionary - this is required to easily update the regular config file
+    with the wandb config
+    Args:
+        dictionary:
+        parent_key:
+        sep:
+
+    Returns:
+        Box: Python box object with flattened config. Elements that were previously callable via ['key']['subkey']
+            are now callable via ['key.subkey']
+
+    """
+    flattened_dict = {}
+    for key, value in dictionary.items():
+        new_key = f"{parent_key}{sep}{key}" if parent_key else key
+        if isinstance(value, dict):
+            flattened_dict.update(flatten_config(value, parent_key=new_key, sep=sep))
+        else:
+            flattened_dict[new_key] = value
+    return Box(flattened_dict)
