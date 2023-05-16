@@ -59,7 +59,6 @@ class TCGADataset(Dataset):
         valid_sources = ["omic", "slides"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
         self.config = config
-        self.data_conf = config.data
         self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
 
         # pre-load and transform omic data

@@ -3,6 +3,10 @@ sys.path.append("/home/kh701/pycharm/x-perceiver/")
 
 import torch
 import torch.nn as nn
+import os
+import argparse
+from argparse import Namespace
+import yaml
 from tqdm import tqdm
 from x_perceiver.train import majority_classifier_acc
 from x_perceiver.models import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss
@@ -15,7 +19,7 @@ from x_perceiver.models.perceiver import Perceiver
 import pandas as pd
 from box import Box
 from torch.utils.data import Dataset, DataLoader
-from x_perceiver.utils import Config
+from x_perceiver.utils import Config, flatten_config
 from x_perceiver.etl import TCGADataset
 from pathlib import Path
 from datetime import datetime
@@ -27,11 +31,13 @@ import wandb
 
 class Pipeline:
 
-    def __init__(self, config: Box, wandb_name: str=None):
-        self.config = config
-        self.output_dims = int(self.config.model_params.output_dims)
+    def __init__(self, config: Box, args: Namespace, wandb_name: str=None):
+        self.config = flatten_config(config)
+        self.args = args
+        self.wandb_name = wandb_name
+        self.output_dims = int(self.config["model_params.output_dims"])
         self.sources = self.config.sources
-        self.n_classes = self.config.clf.n_classes
+        self.n_classes = self.config["clf.n_classes"]
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.device == "cuda":
@@ -42,19 +48,21 @@ class Pipeline:
         torch.manual_seed(self.config.seed)
         np.random.seed(self.config.seed)
 
-        self.wandb_setup(wandb_name)
+        self.wandb_setup()
 
-    def wandb_setup(self, wandb_name):
-        # setup wandb logging
-        wandb_config = {}
-        wandb_config.update(dict(self.config))
-        wandb.init(
-            project="x-perceiver",
-            config=wandb_config,
-            name=wandb_name,
-        )
-        # assign config back to self to allow for parameter sweeps
-        self.config = Box(dict(wandb.config))
+    def wandb_setup(self) -> None:
+
+        if args.hyperparameter_sweep:
+            with open("sweep.yaml", "r") as f:
+                sweep_config = yaml.safe_load(f)
+
+            sweep_id = wandb.sweep(sweep=sweep_config, project="x-perceiver")
+            wandb.agent(sweep_id, function=self.main)
+        else:
+            wandb_config = dict(self.config)
+            wandb.init(project="x-perceiver", name=self.wandb_name, config=wandb_config)
+        return None
+
 
     def _check_config(self) -> None:
         """
@@ -66,7 +74,7 @@ class Pipeline:
         assert all([source in valid_sources for source in self.config.sources]), f"Invalid source specified. Valid sources are {valid_sources}"
 
         valid_survival_losses = ["nll", "ce_survival", "cox"]
-        assert self.config.survival.loss in valid_survival_losses, f"Invalid survival loss specified. " \
+        assert self.config["survival.loss"] in valid_survival_losses, f"Invalid survival loss specified. " \
                                                                    f"Valid losses are {valid_survival_losses}"
 
         valid_tasks = ["survival", "classification"]
@@ -79,6 +87,15 @@ class Pipeline:
 
 
     def main(self):
+
+        # Initialise wandb run (do here for sweep)
+        if self.args.hyperparameter_sweep:
+            wandb.init(project="x-perceiver", name=None) # init sweep run
+            # update config with sweep config
+            for key, value in wandb.config.items():
+                if key in self.config.keys():
+                    self.config[key] = value
+
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
         self.log_path = Path(self.config.log_path).joinpath(timestamp)
         self.log_path.mkdir(parents=True, exist_ok=True)
@@ -113,17 +130,17 @@ class Pipeline:
         weight_sampler = self._calc_class_weights(train)
 
         train_data = DataLoader(train,
-                                batch_size=self.config.train_loop.batch_size,
+                                batch_size=self.config["train_loop.batch_size"],
                                 shuffle=False, num_workers=os.cpu_count(),
                                 pin_memory=True, multiprocessing_context="spawn", sampler=weight_sampler)
 
-        test_data = DataLoader(test, batch_size=self.config.train_loop.batch_size, shuffle=False, num_workers=os.cpu_count(),
+        test_data = DataLoader(test, batch_size=self.config["train_loop.batch_size"], shuffle=False, num_workers=os.cpu_count(),
                                 pin_memory=True, multiprocessing_context="spawn")
         return train_data, test_data
 
     def _calc_class_weights(self, train):
 
-        if self.config.model_params.class_weights:
+        if self.config["model_params.class_weights"]:
             train_targets = np.array(train.dataset.y_disc)[train.indices]
             _, counts = np.unique(train_targets, return_counts=True)
             self.class_weight = 1. / counts
@@ -149,21 +166,21 @@ class Pipeline:
                 model = Perceiver(
                     input_channels=1,
                     input_axis=2, # second axis (b n_feats c)
-                    num_freq_bands=self.config.model_params.num_freq_bands,
-                    depth=self.config.model_params.depth,
-                    max_freq=self.config.model_params.max_freq,
+                    num_freq_bands=self.config["model_params.num_freq_bands"],
+                    depth=self.config["model_params.depth"],
+                    max_freq=self.config["model_params.max_freq"],
                     num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
-                    num_latents = self.config.model_params.num_latents,
-                    latent_dim = self.config.model_params.latent_dim,
-                    cross_dim_head = self.config.model_params.cross_dim_head,
-                    latent_dim_head = self.config.model_params.latent_dim_head,
-                    cross_heads = self.config.model_params.cross_heads,
-                    latent_heads = self.config.model_params.latent_heads,
-                    attn_dropout = self.config.model_params.attn_dropout,  # non-default
-                    ff_dropout = self.config.model_params.ff_dropout,  # non-default
+                    num_latents = self.config["model_params.num_latents"],
+                    latent_dim = self.config["model_params.latent_dim"],
+                    cross_dim_head = self.config["model_params.cross_dim_head"],
+                    latent_dim_head = self.config["model_params.latent_dim_head"],
+                    cross_heads = self.config["model_params.cross_heads"],
+                    latent_heads = self.config["model_params.latent_heads"],
+                    attn_dropout = self.config["model_params.attn_dropout"],  # non-default
+                    ff_dropout = self.config["model_params.ff_dropout"],  # non-default
                     weight_tie_layers = False,
-                    fourier_encode_data = self.config.model_params.fourier_encode_data,
-                    self_per_cross_attn = self.config.model_params.self_per_cross_attn,
+                    fourier_encode_data = self.config["model_params.fourier_encode_data"],
+                    self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
                     final_classifier_head = True
                 )
                 model.float()
@@ -218,16 +235,16 @@ class Pipeline:
         """
         print(f"Training classification model")
         optimizer = optim.SGD(model.parameters(),
-                              lr=self.config.optimizer.lr,
-                              momentum=self.config.optimizer.momentum,
-                              weight_decay=self.config.optimizer.weight_decay
+                              lr=self.config["optimizer.lr"],
+                              momentum=self.config["optimizer.momentum"],
+                              weight_decay=self.config["optimizer.weight_decay"]
                               )
         # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
-                                                  max_lr=self.config.optimizer.max_lr,
-                                                  epochs=self.config.train_loop.epochs,
+                                                  max_lr=self.config["optimizer.max_lr"],
+                                                  epochs=self.config["train_loop.epochs"],
                                                   steps_per_epoch=len(train_data))
-        loss_weight = torch.tensor(self.class_weight).float().to(self.device) if self.config.model_params.class_weights else None
+        loss_weight = torch.tensor(self.class_weight).float().to(self.device) if self.config["model_params.class_weights"] else None
 
         criterion = nn.CrossEntropyLoss(weight=loss_weight)
 
@@ -235,7 +252,7 @@ class Pipeline:
         model.train()
 
         majority_train_acc = np.round(majority_classifier_acc(train_data.dataset.dataset.y_disc), 5)
-        for epoch in range(self.config.train_loop.epochs):
+        for epoch in range(self.config["train_loop.epochs"]):
             print(f"Epoch {epoch}")
             running_loss = 0.0
             predictions = []
@@ -280,14 +297,14 @@ class Pipeline:
             running_loss = 0.0
             # running_acc = 0.0
 
-            if epoch % self.config.train_loop.eval_interval == 0:
+            if epoch % self.config["train_loop.eval_interval"] == 0:
                 # print("**************************")
                 # print(f"EPOCH {epoch} EVALUATION")
                 # print("**************************")
                 self.evaluate_clf_epoch(model, test_data, criterion)
 
             # checkpoint model after epoch
-            if epoch % self.config.train_loop.checkpoint_interval == 0:
+            if epoch % self.config["train_loop.checkpoint_interval"] == 0:
                 torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
 
     def evaluate_clf_epoch(self, model: nn.Module, test_data: DataLoader, criterion: nn.Module):
@@ -345,17 +362,17 @@ class Pipeline:
         print(f"Training surivival model")
         # model.to(self.device)
         optimizer = optim.SGD(model.parameters(),
-                              lr=self.config.optimizer.lr, momentum=self.config.optimizer.momentum)
+                              lr=self.config["optimizer.lr"], momentum=self.config["optimizer.momentum"])
         # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
-                                                  max_lr=self.config.optimizer.max_lr,
-                                                  epochs=self.config.train_loop.epochs,
+                                                  max_lr=self.config["optimizer.max_lr"],
+                                                  epochs=self.config["train_loop.epochs"],
                                                   steps_per_epoch=len(train_data))
 
         model.train()
         eval_interval = 10
 
-        for epoch in range(self.config.train_loop.epochs):
+        for epoch in range(self.config["train_loop.epochs"]):
             print(f"Epoch {epoch}")
             risk_scores = []
             censorships = []
@@ -379,13 +396,13 @@ class Pipeline:
                 hazards = torch.sigmoid(y_hat)  # sigmoid to get hazards from predictions for surv analysis
                 survival = torch.cumprod(1-hazards, dim=1)  # as per paper, survival = cumprod(1-hazards)
                 risk = -torch.sum(survival, dim=1).detach().cpu().numpy()  # risk = -sum(survival)
-                if self.config.survival.loss == "nll":
+                if self.config["survival.loss"] == "nll":
                     loss_fn = NLLSurvLoss()
                     loss = loss_fn(h=y_hat, y=y_disc, c=censorship)
-                elif self.config.survival.loss == "ce_survival":
+                elif self.config["survival.loss"] == "ce_survival":
                     loss_fn = CrossEntropySurvLoss()
                     loss = loss_fn(hazards=hazards, survival=survival, y_disc=y_disc, censorship=censorship)
-                elif self.config.survival.loss == "cox":
+                elif self.config["survival.loss"] == "cox":
                     loss_fn = CoxPHSurvLoss()
                     loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
@@ -425,7 +442,7 @@ class Pipeline:
                 wandb.log({"val_loss": val_loss, "val_c_index": val_c_index}, step=epoch)
 
             # checkpoint model after epoch
-            if epoch % self.config.train_loop.checkpoint_interval == 0:
+            if epoch % self.config["train_loop.checkpoint_interval"] == 0:
                 torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
 
     def evaluate_survival_epoch(self,
@@ -455,13 +472,13 @@ class Pipeline:
             survival = torch.cumprod(1-hazards, dim=1)
             risk = -torch.sum(survival, dim=1).detach().cpu().numpy()
 
-            if self.config.survival.loss == "nll":
+            if self.config["survival.loss"] == "nll":
                 loss_fn = NLLSurvLoss()
                 loss = loss_fn(h=y_hat, y=y_disc, c=censorship)
-            elif self.config.survival.loss == "ce_survival":
+            elif self.config["survival.loss"] == "ce_survival":
                 loss_fn = CrossEntropySurvLoss()
                 loss = loss_fn(hazards=hazards, survival=survival, y_disc=y_disc, censorship=censorship)
-            elif self.config.survival.loss == "cox":
+            elif self.config["survival.loss"] == "cox":
                 loss_fn = CoxPHSurvLoss()
                 loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
@@ -493,15 +510,25 @@ class Pipeline:
 
 
 if __name__ == "__main__":
-    import os
-    print(os.getcwd())
 
+    parser = argparse.ArgumentParser(description="Run main training pipeline of x-perceiver")
+
+    # assumes execution
+    parser.add_argument("--config_path", type=str, default="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml", help="Path to config file")
+    parser.add_argument("--hyperparameter_sweep", type=bool, default=False, help="Whether to run wandb hyperparameter sweep")
+
+    # call config
+    args = parser.parse_args()
+
+    # set up multiprocessing context for PyTorch
     torch.multiprocessing.set_start_method('spawn') #  only set once for repeated experiments to work
 
-    config_path="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml"
+    config_path = args.config_path
+    # config_path="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml"
     config = Config(config_path).read()
     pipeline = Pipeline(
             config=config,
+            args=args,
         )
     pipeline.main()
 
