@@ -32,6 +32,32 @@ To download the WSI data, you need to install the [gdc-client](https://docs.gdc.
 ## Data
 
 1. Specify the path to the gdc-client executable in `main.yml` (this will likely be the repository root if you installed the dependencies using `invoke install`). 
-2. Run `invoke download --dataset <dataset>`
+2. Run `invoke download --dataset <dataset>`, e.g., invoke download --dataset brca
 
 
+## Running Experiments
+
+### Single run
+
+Given the configuration in `config.yml`, you can launch a single run using. Note that all below commands assume that you are in the repository root. 
+
+```bash
+python3 x_perceiver/main.py 
+```
+
+You can view the available command line arguments using 
+
+```bash
+python3 x_perceiver/main.py --help
+```
+
+
+### Hyperparameter search
+
+You can launch a hyperparameter search by passing the `--hyperparameter_sweep` argument. 
+
+```bash
+python3 x_perceiver/main.py --hyperparameter_sweep
+```
+
+Note that the sweep parameters are specified in the `sweep.yaml` file.
