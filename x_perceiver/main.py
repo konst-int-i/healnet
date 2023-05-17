@@ -151,7 +151,7 @@ class Pipeline:
             if self.config["model_params.class_weights"] == "inverse":
                 self.class_weight = 1. / counts
             elif self.config["model_params.class_weights"] == "inverse_root":
-                self.class_weight = 1. / torch.sqrt(counts)
+                self.class_weight = 1. / np.sqrt(counts)
             sample_weights = np.array([self.class_weight[t] for t in train_targets])
             sample_weights = torch.from_numpy(sample_weights)
             sampler = torch.utils.data.WeightedRandomSampler(weights=sample_weights.type('torch.DoubleTensor'),
