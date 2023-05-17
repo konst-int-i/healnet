@@ -14,7 +14,7 @@ sources:
   - omic
 #  - slides
 
-model: perceiver
+model: fcnn
 
 survival: # all parameters related to survival task
   loss: nll # valid: nll, ce_survival, cox
