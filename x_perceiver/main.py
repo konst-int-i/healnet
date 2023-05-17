@@ -3,6 +3,7 @@ sys.path.append("/home/kh701/pycharm/x-perceiver/")
 
 import torch
 import torch.nn as nn
+from torch.autograd.profiler import profile
 import os
 import argparse
 from argparse import Namespace
@@ -15,7 +16,7 @@ from torchsummary import summary
 from sksurv.metrics import concordance_index_censored
 from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix
 from torch import optim
-from x_perceiver.models.perceiver import Perceiver
+from x_perceiver.models import Perceiver, FCNN
 import pandas as pd
 from box import Box
 from torch.utils.data import Dataset, DataLoader
@@ -80,7 +81,7 @@ class Pipeline:
         valid_tasks = ["survival", "classification"]
         assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
 
-        valid_models = ["perceiver", "custom"]
+        valid_models = ["perceiver", "custom", "fcnn"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
         return None
@@ -132,10 +133,10 @@ class Pipeline:
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
                                 shuffle=False, num_workers=os.cpu_count(),
-                                pin_memory=True, multiprocessing_context="spawn", sampler=weight_sampler)
+                                pin_memory=True, multiprocessing_context="fork", sampler=weight_sampler)
 
         test_data = DataLoader(test, batch_size=self.config["train_loop.batch_size"], shuffle=False, num_workers=os.cpu_count(),
-                                pin_memory=True, multiprocessing_context="spawn")
+                                pin_memory=True, multiprocessing_context="fork")
         return train_data, test_data
 
     def _calc_class_weights(self, train):
@@ -207,12 +208,14 @@ class Pipeline:
                 model.to(self.device) # need to move to GPU to get summary
                 feat, _, _, _ = next(iter(train_data))
                 summary(model, input_size=feat.shape[1:]) # omit batch dim
-        elif self.config.model == "custom":
+        elif self.config.model == "fcnn":
+            feat, _, _, _ = next(iter(train_data))
+            feat = feat.squeeze()
             # modality-specific models
             if self.sources == ["omic"]:
-                # TODO: implement custom model
-                model=None
-                pass
+                model = FCNN(input_size=feat.shape[1], hidden_sizes=[64, 32, 16], output_size=self.output_dims)
+                model.to(self.device)
+                summary(model, input_size=(1, feat.shape[1]))
             elif self.sources == ["slides"]:
                 model = None
                 pass
@@ -252,6 +255,7 @@ class Pipeline:
         model.train()
 
         majority_train_acc = np.round(majority_classifier_acc(train_data.dataset.dataset.y_disc), 5)
+
         for epoch in range(self.config["train_loop.epochs"]):
             print(f"Epoch {epoch}")
             running_loss = 0.0
@@ -521,7 +525,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     # set up multiprocessing context for PyTorch
-    torch.multiprocessing.set_start_method('spawn') #  only set once for repeated experiments to work
+    torch.multiprocessing.set_start_method('fork') #  only set once for repeated experiments to work
 
     config_path = args.config_path
     # config_path="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml"

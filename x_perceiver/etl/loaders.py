@@ -80,22 +80,19 @@ class TCGADataset(Dataset):
         self.get_info(full_detail=False)
 
     def __getitem__(self, index):
-        slide_id = self.omic_df.iloc[index]["slide_id"]
-        # # check that slide is available
         y_disc = self.y_disc[index]
         censorship = self.censorship[index]
         event_time = self.survival_months[index]
         if len(self.sources) == 1 and self.sources[0] == "omic":
             omic_tensor = self.omic_tensor[index]
-            # mol_tensor = torch.Tensor(self.features.iloc[index].values)
-            # introduce extra dim for perceiver
-            # mol_tensor = einops.repeat(mol_tensor, "feat -> b feat c", b=1, c=1)
             return omic_tensor, censorship, event_time, y_disc
-            # return mol_tensor.double(), censorship, event_time, y_disc
+
         elif len(self.sources) == 1 and self.sources[0] == "slides":
+            slide_id = self.omic_df.iloc[index]["slide_id"]
             slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
             return slide_tensor, censorship, event_time, y_disc
         else: # both
+            slide_id = self.omic_df.iloc[index]["slide_id"]
             slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
             mol_tensor = torch.from_numpy(self.features.iloc[index].values)
             return (mol_tensor, slide_tensor), censorship, event_time, y_disc
