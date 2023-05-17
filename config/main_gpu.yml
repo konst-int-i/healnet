@@ -39,7 +39,7 @@ optimizer:
 model_params:
   output_dims: 4
   weight_decay: True
-  class_weights: True # weight classes by inverse frequency
+  class_weights: inverse_root # one of inverse, inverse_root, None
   num_freq_bands: 6
   depth: 6
   max_freq: 2.

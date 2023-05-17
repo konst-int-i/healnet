@@ -84,6 +84,10 @@ class Pipeline:
         valid_models = ["perceiver", "custom", "fcnn"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
+        valid_class_weights = ["inverse", "inverse_root", None]
+        assert self.config["model_params.class_weight"] in valid_class_weights, f"Invalid class weight specified. " \
+                                                                                f"Valid weights are {valid_class_weights}"
+
         return None
 
 
@@ -141,10 +145,13 @@ class Pipeline:
 
     def _calc_class_weights(self, train):
 
-        if self.config["model_params.class_weights"]:
+        if self.config["model_params.class_weights"] is not None:
             train_targets = np.array(train.dataset.y_disc)[train.indices]
             _, counts = np.unique(train_targets, return_counts=True)
-            self.class_weight = 1. / counts
+            if self.config["model_params.class_weights"] == "inverse":
+                self.class_weight = 1. / counts
+            elif self.config["model_params.class_weights"] == "inverse_root":
+                self.class_weight = 1. / torch.sqrt(counts)
             sample_weights = np.array([self.class_weight[t] for t in train_targets])
             sample_weights = torch.from_numpy(sample_weights)
             sampler = torch.utils.data.WeightedRandomSampler(weights=sample_weights.type('torch.DoubleTensor'),
