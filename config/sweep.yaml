@@ -17,8 +17,8 @@ parameters:
     value: 4
   model_params.class_weights:
     values:
-      - "True"
-      - "False"
+      - "inverse"
+      - "inverse_root"
   model_params.output_dims:
     value: 4
   model_params.weight_decay:
