@@ -9,25 +9,21 @@ wandb: True
 data:
   level: 3
 
-task: classification # [survival, classification]
+task: survival # [survival, classification]
 sources:
   - omic
 #  - slides
 
-model: fcnn
+model: perceiver # [fcnn, perceiver]
 
 survival: # all parameters related to survival task
   loss: nll # valid: nll, ce_survival, cox
 
-clf:
-  n_classes: 4
-
-
 train_loop:
   checkpoint_interval: 10
-  eval_interval: 10
-  batch_size: 8
-  epochs: 10
+  eval_interval: 2
+  batch_size: 4
+  epochs: 50
 
 optimizer:
   max_lr: 0.005
@@ -35,15 +31,14 @@ optimizer:
   momentum: 0.9
   weight_decay: 0.0001 # or None
 
-
 model_params:
-  output_dims: 4
+  output_dims: 4 # refers to n_classes for classificaiton, n_bins for survival
   weight_decay: True
-  class_weights: inverse_root # one of inverse, inverse_root, None
+  class_weights: inverse # one of inverse, inverse_root, None
   num_freq_bands: 6
   depth: 6
   max_freq: 2.
-  num_latents: 32
+  num_latents: 256 #
   latent_dim: 32
   cross_dim_head: 16
   latent_dim_head: 16
@@ -52,6 +47,5 @@ model_params:
   attn_dropout: 0.5
   ff_dropout: 0.5
   fourier_encode_data: True
-  self_per_cross_attn: 1
-
-
+  self_per_cross_attn: 1  # if 0, no self attention at all
+  weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large

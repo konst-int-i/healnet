@@ -14,7 +14,7 @@ from x_perceiver.models import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss
 import numpy as np
 from torchsummary import summary
 from sksurv.metrics import concordance_index_censored
-from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix
+from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score
 from torch import optim
 from x_perceiver.models import Perceiver, FCNN
 import pandas as pd
@@ -38,7 +38,6 @@ class Pipeline:
         self.wandb_name = wandb_name
         self.output_dims = int(self.config["model_params.output_dims"])
         self.sources = self.config.sources
-        self.n_classes = self.config["clf.n_classes"]
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.device == "cuda":
@@ -54,7 +53,7 @@ class Pipeline:
     def wandb_setup(self) -> None:
 
         if args.hyperparameter_sweep:
-            with open("config/sweep.yaml", "r") as f:
+            with open(self.args.sweep_config, "r") as f:
                 sweep_config = yaml.safe_load(f)
 
             sweep_id = wandb.sweep(sweep=sweep_config, project="x-perceiver")
@@ -95,8 +94,8 @@ class Pipeline:
 
         # Initialise wandb run (do here for sweep)
         if self.args.hyperparameter_sweep:
-            wandb.init(project="x-perceiver", name=None) # init sweep run
             # update config with sweep config
+            wandb.init(project="x-perceiver", name=None) # init sweep run
             for key, value in wandb.config.items():
                 if key in self.config.keys():
                     self.config[key] = value
@@ -123,7 +122,7 @@ class Pipeline:
                            level=3,
                            survival_analysis=True,
                            sources=self.sources,
-                           n_bins=self.output_dims if self.config.task == "survival" else self.n_classes,
+                           n_bins=self.output_dims,
                            )
 
         train_size = int(0.8 * len(data))
@@ -132,12 +131,15 @@ class Pipeline:
         train, test = torch.utils.data.random_split(data, [train_size, test_size])
 
         # calculate class weights for imbalanced datasets (if model_params.class_weights is True)
-        weight_sampler = self._calc_class_weights(train)
+        # if self.config["model_params.class_weights"] is not None:
+        weight_sampler = self._calc_class_weights(train) if self.config["model_params.class_weights"] is not None else None
 
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
-                                shuffle=False, num_workers=os.cpu_count(),
-                                pin_memory=True, multiprocessing_context="fork", sampler=weight_sampler)
+                                shuffle=True, num_workers=os.cpu_count(),
+                                pin_memory=True, multiprocessing_context="fork",
+                                # sampler=weight_sampler
+                                )
 
         test_data = DataLoader(test, batch_size=self.config["train_loop.batch_size"], shuffle=False, num_workers=os.cpu_count(),
                                 pin_memory=True, multiprocessing_context="fork")
@@ -145,7 +147,7 @@ class Pipeline:
 
     def _calc_class_weights(self, train):
 
-        if self.config["model_params.class_weights"] is not None:
+        if self.config["model_params.class_weights"] in ["inverse", "inverse_root"]:
             train_targets = np.array(train.dataset.y_disc)[train.indices]
             _, counts = np.unique(train_targets, return_counts=True)
             if self.config["model_params.class_weights"] == "inverse":
@@ -158,6 +160,7 @@ class Pipeline:
                                                                  num_samples=len(sample_weights))
             return sampler
         else:
+            self.class_weight = None
             return None
 
     def make_model(self, train_data: DataLoader):
@@ -186,7 +189,7 @@ class Pipeline:
                     latent_heads = self.config["model_params.latent_heads"],
                     attn_dropout = self.config["model_params.attn_dropout"],  # non-default
                     ff_dropout = self.config["model_params.ff_dropout"],  # non-default
-                    weight_tie_layers = False,
+                    weight_tie_layers = self.config["model_params.weight_tie_layers"],
                     fourier_encode_data = self.config["model_params.fourier_encode_data"],
                     self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
                     final_classifier_head = True
@@ -220,7 +223,7 @@ class Pipeline:
             feat = feat.squeeze()
             # modality-specific models
             if self.sources == ["omic"]:
-                model = FCNN(input_size=feat.shape[1], hidden_sizes=[64, 32, 16], output_size=self.output_dims)
+                model = FCNN(input_size=feat.shape[1], hidden_sizes=[128, 32, 16], output_size=self.output_dims)
                 model.to(self.device)
                 summary(model, input_size=(1, feat.shape[1]))
             elif self.sources == ["slides"]:
@@ -254,7 +257,7 @@ class Pipeline:
                                                   max_lr=self.config["optimizer.max_lr"],
                                                   epochs=self.config["train_loop.epochs"],
                                                   steps_per_epoch=len(train_data))
-        loss_weight = torch.tensor(self.class_weight).float().to(self.device) if self.config["model_params.class_weights"] else None
+        loss_weight = torch.tensor(self.class_weight).float().to(self.device) if self.class_weight is not None else None
 
         criterion = nn.CrossEntropyLoss(weight=loss_weight)
 
@@ -381,7 +384,6 @@ class Pipeline:
                                                   steps_per_epoch=len(train_data))
 
         model.train()
-        eval_interval = 10
 
         for epoch in range(self.config["train_loop.epochs"]):
             print(f"Epoch {epoch}")
@@ -389,6 +391,8 @@ class Pipeline:
             censorships = []
             event_times = []
             train_loss_surv, train_loss = 0.0, 0.0
+            predictions = []
+            labels = []
 
             for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
@@ -422,6 +426,9 @@ class Pipeline:
                 censorships.append(censorship.detach().cpu().numpy())
                 event_times.append(event_time.detach().cpu().numpy())
 
+                predictions.append(y_hat.argmax(1).cpu().tolist())
+                labels.append(y_disc.cpu().tolist())
+
                 loss_value = loss.item()
                 train_loss_surv += loss_value
                 train_loss += loss_value + loss_reg
@@ -435,6 +442,9 @@ class Pipeline:
                     optimizer.zero_grad()
 
             # calculate epoch-level stats
+            predictions = np.concatenate(predictions)
+            labels = np.concatenate(labels)
+
             train_loss_surv /= len(train_data)
             train_loss /= len(train_data)
 
@@ -444,11 +454,12 @@ class Pipeline:
 
             # calculate epoch-level concordance index
             c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
+            # f1 = f1_score(labels, predictions, average="macro")
             wandb.log({"train_loss": train_loss, "train_c_index": c_index}, step=epoch)
             print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, c_index))
 
 
-            if epoch % eval_interval == 0:
+            if epoch % self.config["train_loop.eval_interval"] == 0:
                 val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data, loss_reg=loss_reg)
                 wandb.log({"val_loss": val_loss, "val_c_index": val_c_index}, step=epoch)
 
@@ -469,6 +480,8 @@ class Pipeline:
         risk_scores = []
         censorships = []
         event_times = []
+        predictions = []
+        labels = []
         val_loss_surv, val_loss = 0.0, 0.0
 
         for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(test_data)):
@@ -502,8 +515,13 @@ class Pipeline:
             val_loss_surv += loss_value
             val_loss += loss_value + loss_reg
 
+            predictions.append(y_hat.argmax(1).cpu().tolist())
+            labels.append(y_disc.detach().cpu().tolist())
 
         # calculate epoch-level stats
+        predictions = np.concatenate(predictions)
+        labels = np.concatenate(labels)
+
         val_loss_surv /= len(test_data)
         val_loss /= len(test_data)
 
@@ -513,8 +531,9 @@ class Pipeline:
 
         # calculate epoch-level concordance index
         c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
-
-        print(f"Epoch: {epoch}, val_loss: {val_loss}, val_c_index: {c_index}")
+        # f1 = f1_score(labels, predictions, average="macro")
+        print(f"Epoch: {epoch}, val_loss: {np.round(val_loss, 5)}, "
+              f"val_c_index: {np.round(c_index, 5)}")
 
         model.train()
         return val_loss, c_index
@@ -527,6 +546,7 @@ if __name__ == "__main__":
     # assumes execution
     parser.add_argument("--config_path", type=str, default="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml", help="Path to config file")
     parser.add_argument("--hyperparameter_sweep", type=bool, default=False, help="Whether to run wandb hyperparameter sweep")
+    parser.add_argument("--sweep_config", type=str, default="config/sweep.yaml", help="Hyperparameter sweep configuration")
 
     # call config
     args = parser.parse_args()
