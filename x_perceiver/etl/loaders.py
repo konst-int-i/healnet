@@ -89,7 +89,8 @@ class TCGADataset(Dataset):
 
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide_id = self.omic_df.iloc[index]["slide_id"]
-            slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
+            # slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
+            slide, slide_tensor = self.load_wsi_patches(slide_id, level=self.level)
             return slide_tensor, censorship, event_time, y_disc
         else: # both
             slide_id = self.omic_df.iloc[index]["slide_id"]
@@ -97,7 +98,7 @@ class TCGADataset(Dataset):
             mol_tensor = torch.from_numpy(self.features.iloc[index].values)
             return (mol_tensor, slide_tensor), censorship, event_time, y_disc
 
-    def get_resize_dims(self, level: int):
+    def get_resize_dims(self, level: int, patch_height: int = 128, patch_width: int = 128):
         # TODO - validate which dimensions to pick for each level
         slide_sample = list(self.slide_idx.values())[0]
         slide_path = self.wsi_paths[slide_sample]
@@ -105,8 +106,8 @@ class TCGADataset(Dataset):
         width = slide.level_dimensions[level][0]
         height = slide.level_dimensions[level][1]
         # take nearest multiple of 128 of height and width (for patches)
-        width = round(width/128)*128
-        height = round(height/128)*128
+        width = round(width/patch_width)*patch_width
+        height = round(height/patch_height)*patch_height
         return width, height
 
     def _get_slide_idx(self):
@@ -204,7 +205,7 @@ class TCGADataset(Dataset):
 
         return df
 
-    def load_wsi(self, slide_id: str, level: int = None, resolution: str = None) -> Tuple:
+    def load_wsi(self, slide_id: str, level: int = None) -> Tuple:
         """
         Load in single slide and get region at specified resolution level
         Args:
@@ -221,34 +222,63 @@ class TCGADataset(Dataset):
         slide = OpenSlide(slide_path)
 
         # specify resolution level
-        if resolution is None and level is None:
-            raise ValueError("Must specify either resolution or level")
-        elif resolution is not None:
-            valid_resolutions = ["lowest", "mid", "highest"]
-            assert resolution in valid_resolutions, f"Invalid resolution arg, must be one of {valid_resolutions}"
-            if resolution == "lowest":
-                level = slide.level_count - 1
-            if resolution == "highest":
-                level = 0
-            if resolution == "mid":
-                level = int(slide.level_count / 2)
+        if level is None:
+            level = slide.level_count # lowest resolution by default
         if level > slide.level_count - 1:
             level = slide.level_count - 1
         # load in region
         size = slide.level_dimensions[level]
         region = slide.read_region((0,0), level, size)
-        # print(f"Transforming image {slide_id}")
+        # add transforms
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
             transforms.Resize((self.wsi_height, self.wsi_width)),
-            RearrangeTransform("c h w -> h w c")
+            RearrangeTransform("c h w -> h w c") # rearrange for Perceiver architecture
         ])
         region_tensor = transform(region)
-        # cast as float16
-        # region_tensor = region_tensor.to(dtype=torch.float16)
-
         return slide, region_tensor
+
+    def load_wsi_patches(self, slide_id: str, level: int = None, patch_height: int=256, patch_width: int=256) -> Tuple:
+        """
+        Load in single slides
+        Args:
+            slide_id (str):
+            level (int):
+            patch_height (int):
+            patch_width (int):
+        Returns:
+        """
+        slide_path = self.wsi_paths[slide_id]
+        slide = OpenSlide(slide_path)
+        # need to use sampling factor to get correct coordinates (read_region uses level 0 coordinates)
+        sampling_factor = int(slide.level_downsamples[level])
+
+        (img_width, img_height) = slide.level_dimensions[level]
+        num_patches_h = int(img_height / patch_height)
+        num_patches_w = int(img_width / patch_width)
+        num_patches = num_patches_h * num_patches_w
+
+        patch_list = []
+        for h in range(num_patches_h):
+            for w in range(num_patches_w):
+                y = h * patch_height * sampling_factor
+                x = w * patch_width * sampling_factor
+                patch = slide.read_region((x, y), level, (patch_width, patch_height))
+                patch_list.append(np.array(patch))
+
+        # add transforms
+        transform = transforms.Compose([
+            transforms.ToTensor(),
+            # transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
+            # transforms.Resize((self.wsi_height, self.wsi_width)),
+            # RearrangeTransform("c h w -> h w c") # rearrange for Perceiver architecture
+        ])
+
+        patches = transform(np.array(patch_list))
+        return slide, patches
+
+
 
 def to_tensor(img, dtype=torch.float32) -> torch.Tensor:
     """
