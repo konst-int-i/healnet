@@ -31,8 +31,31 @@ To download the WSI data, you need to install the [gdc-client](https://docs.gdc.
 
 ## Data
 
+
+### Download
+From the root of the repository, run
+
 1. Specify the path to the gdc-client executable in `main.yml` (this will likely be the repository root if you installed the dependencies using `invoke install`). 
-2. Run `invoke download --dataset <dataset>`, e.g., invoke download --dataset brca
+2. Run `invoke download --dataset <dataset> --config_path <config>`, e.g., invoke download --dataset brca
+
+If you are unsure about which arguments are available, you can always run `invoke download --help`.
+
+The script downloads the data using the given manifest files in `data/tcga/gdc_manifests/full` and save it in the data folder under `tcga/wsi/<dataset>` taking the following structure: 
+
+```
+tcga/wsi/<dataset>/raw
+	├── slide_1.svs
+	├── slide_2.svs
+	└── ...
+```
+
+### Preprocessing
+
+To ensure comparability with baselines, want to have the option to run the model in the WSI patches and extracted features using the [CLAM](https://github.com/mahmoodlab/CLAM) package. 
+
+Run the following for the 
+
+
 
 
 ## Running Experiments
