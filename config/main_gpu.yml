@@ -8,11 +8,12 @@ wandb: True
 
 data:
   level: 3
+  patch_size: 256
 
 task: survival # [survival, classification]
 sources:
-  - omic
-#  - slides
+#  - omic
+  - slides
 
 model: perceiver # [fcnn, perceiver]
 
@@ -31,10 +32,14 @@ optimizer:
   momentum: 0.9
   weight_decay: 0.0001 # or None
 
+preprocessing:
+  resize_height: 256
+  resize_width: 256
+
 model_params:
   output_dims: 4 # refers to n_classes for classificaiton, n_bins for survival
   weight_decay: True
-  class_weights: inverse # one of inverse, inverse_root, None
+  class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
   num_freq_bands: 6
   depth: 6
   max_freq: 2.

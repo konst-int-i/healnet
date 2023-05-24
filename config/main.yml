@@ -9,6 +9,7 @@ wandb: True
 
 data:
   level: 3
+  patch_size: 256
 
 task: survival  # [survival, classification]
 #model: perceiver  # [perceiver, specialist_transformer]
