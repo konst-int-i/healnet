@@ -68,8 +68,7 @@ class TCGADataset(Dataset):
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
         self.config = config
         self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
-        self.sample_slide_id = self.slide_ids[0]
-        # self.sample_slide_id = next(iter(self.wsi_paths.keys()))
+        self.sample_slide_id = next(iter(self.wsi_paths.keys()))
         self.sample_slide = OpenSlide(self.wsi_paths[self.sample_slide_id])
         # pre-load and transform omic data
         self.omic_df = self.load_omic()
@@ -96,9 +95,9 @@ class TCGADataset(Dataset):
             return omic_tensor, censorship, event_time, y_disc
 
         elif len(self.sources) == 1 and self.sources[0] == "slides":
-            slide_id = self.omic_df.iloc[index]["slide_id"]
+            slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
             # slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
-            slide, slide_tensor = self.load_patches(slide_id, level=self.level)
+            slide, slide_tensor = self.load_patches(slide_id)
             # slide, slide_tensor = self.load_wsi_patches(slide_id, level=self.level)
             return slide_tensor, censorship, event_time, y_disc
         else: # both

@@ -201,8 +201,9 @@ class Pipeline:
                 summary(model, input_size=feat.shape[1:])
             elif self.sources == ["slides"]:
                 model = Perceiver(
-                    input_channels=3, # RGB, dropped alpha channel
-                    input_axis=2,
+                    input_channels=4, # RGB, dropped alpha channel
+                    input_axis=3, # additional axis for patches
+                    # input_axis=2,
                     num_freq_bands=6,
                     max_freq=10.,
                     depth=1,  # number of cross-attention iterations
