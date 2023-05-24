@@ -23,7 +23,7 @@ def install(c, system: str):
     os.remove("gdc-client.zip")
 
 @task
-def download(c, dataset, config_path, samples: int = None):
+def download(c, dataset:str, config_path:str, samples: int = None):
     valid_datasets = ["brca", "blca"]
     config = Config(config_path).read()
     download_dir = Path(config.tcga_path).joinpath(f"wsi/{dataset}")
@@ -39,7 +39,7 @@ def download(c, dataset, config_path, samples: int = None):
         manifest.to_csv(tmp_path, sep="\t", index=False)
         print(f"Downloading {manifest.shape[0]} files from {dataset} dataset...")
         c.run(f"{config.gdc_client} download -m {tmp_path} -d {download_dir}")
-        # cleanup
+        # cleanupJ
         os.remove(tmp_path)
 
     else:
