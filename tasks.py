@@ -23,7 +23,7 @@ def install(c, system: str):
     os.remove("gdc-client.zip")
 
 @task
-def download(c, dataset, samples: int = None, config_path="config/main.yml"):
+def download(c, dataset, config_path, samples: int = None):
     valid_datasets = ["brca", "blca"]
     config = Config(config_path).read()
     download_dir = Path(config.tcga_path).joinpath(f"wsi/{dataset}")
@@ -44,3 +44,27 @@ def download(c, dataset, samples: int = None, config_path="config/main.yml"):
 
     else:
         c.run(f"{config.gdc_client} download -m {manifest_path} -d {download_dir}")
+
+    # flatten directory structure (required to easily run CLAM preprocessing)
+    flatten(c, dataset, config_path)
+
+@task
+def flatten(c, dataset, config_path):
+    """
+    Flattens directory structure for WSI images after download using the GDC client from
+     `data_dir/*.svs` instead of `data_dir/hash_subdir/*.svs`.
+    Args:
+        c:
+        dataset:
+        config_path:
+
+    Returns:
+    """
+    config = Config(config_path).read()
+    download_dir = Path(config.tcga_path).joinpath(f"wsi/{dataset}")
+    # flatten directory structure
+    c.run(f"find {download_dir} -type f -name '*.svs' -exec mv {{}} {download_dir} \;")
+    # remove everything that's not a .svs file
+    c.run(f"find {download_dir} ! -name '*.svs' -delete")
+
+
