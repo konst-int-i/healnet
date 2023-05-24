@@ -4,6 +4,7 @@ from torchvision import transforms
 from x_perceiver.utils import Config
 from openslide import OpenSlide
 import os
+import h5py
 import torch
 import pprint
 from functools import partial
@@ -14,6 +15,7 @@ import numpy as np
 from pathlib import Path
 from typing import *
 from box import Box
+from PIL import Image
 
 
 
@@ -56,18 +58,24 @@ class TCGADataset(Dataset):
         self.survival_analysis = survival_analysis
         self.num_classes = num_classes
         self.n_bins = n_bins
+        self.raw_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}")
+        self.prep_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}_preprocessed_level{level}")
+        self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(self.raw_path)]
+        # load the coordinates of the patches
+        self.patch_coords = self._load_patch_coords()
+        self.num_patches = max([len(coord) for coord in self.patch_coords.values()])
         valid_sources = ["omic", "slides"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
         self.config = config
         self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
-
+        self.sample_slide_id = self.slide_ids[0]
+        # self.sample_slide_id = next(iter(self.wsi_paths.keys()))
+        self.sample_slide = OpenSlide(self.wsi_paths[self.sample_slide_id])
         # pre-load and transform omic data
         self.omic_df = self.load_omic()
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.omic_tensor = torch.Tensor(self.features.values)
         self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n b feat c", b=1, c=1)
-
-        # pre-load and transform slide data
 
 
         self.level = level
@@ -90,24 +98,26 @@ class TCGADataset(Dataset):
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide_id = self.omic_df.iloc[index]["slide_id"]
             # slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
-            slide, slide_tensor = self.load_wsi_patches(slide_id, level=self.level)
+            slide, slide_tensor = self.load_patches(slide_id, level=self.level)
+            # slide, slide_tensor = self.load_wsi_patches(slide_id, level=self.level)
             return slide_tensor, censorship, event_time, y_disc
         else: # both
-            slide_id = self.omic_df.iloc[index]["slide_id"]
-            slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
-            mol_tensor = torch.from_numpy(self.features.iloc[index].values)
-            return (mol_tensor, slide_tensor), censorship, event_time, y_disc
+            pass
+            # slide_id = self.omic_df.iloc[index]["slide_id"]
+            # slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
+            # mol_tensor = torch.from_numpy(self.features.iloc[index].values)
+            # return (mol_tensor, slide_tensor), censorship, event_time, y_disc
 
-    def get_resize_dims(self, level: int, patch_height: int = 128, patch_width: int = 128):
-        # TODO - validate which dimensions to pick for each level
-        slide_sample = list(self.slide_idx.values())[0]
-        slide_path = self.wsi_paths[slide_sample]
-        slide = OpenSlide(slide_path)
-        width = slide.level_dimensions[level][0]
-        height = slide.level_dimensions[level][1]
-        # take nearest multiple of 128 of height and width (for patches)
-        width = round(width/patch_width)*patch_width
-        height = round(height/patch_height)*patch_height
+    def get_resize_dims(self, level: int, patch_height: int = 128, patch_width: int = 128, override=False):
+        if override is False:
+            width = self.sample_slide.level_dimensions[level][0]
+            height = self.sample_slide.level_dimensions[level][1]
+            # take nearest multiple of 128 of height and width (for patches)
+            width = round(width/patch_width)*patch_width
+            height = round(height/patch_height)*patch_height
+        else:
+            width = 512
+            height = 512
         return width, height
 
     def _get_slide_idx(self):
@@ -135,12 +145,23 @@ class TCGADataset(Dataset):
         svs_dict = {path.name: path for path in svs_files}
         return svs_dict
 
-    @property
-    def sample_slide_id(self):
-        return next(iter(self.wsi_paths.keys()))
+    def _load_patch_coords(self):
+        """
+        Loads all patch coordinates for the dataset and level specified in the config
+        """
+        coords = {}
+        for slide_id in self.slide_ids:
+            patch_path = self.prep_path.joinpath(f"patches/{slide_id}.h5")
+            h5_file = h5py.File(patch_path, "r")
+            patch_coords = h5_file["coords"][:]
+            coords[slide_id] = patch_coords
+        return coords
+
+    # @property
+    # def sample_slide_id(self):
+    #     return next(iter(self.wsi_paths.keys()))
 
     def get_info(self, full_detail: bool = False):
-        slide, tensor = self.load_wsi(self.sample_slide_id, level=self.level)
         slide_path = Path(self.config.tcga_path).joinpath(f"wsi/{self.dataset}/")
         print(f"Dataset: {self.dataset.upper()}")
         print(f"Molecular data shape: {self.omic_df.shape}")
@@ -149,15 +170,15 @@ class TCGADataset(Dataset):
         sample_overlap = (set(self.omic_df["slide_id"]) & set(self.wsi_paths.keys()))
         print(f"Molecular/Slide match: {len(sample_overlap)}/{len(self.omic_df)}")
         # print(f"Slide dimensions: {slide.dimensions}")
-        print(f"Slide level count: {slide.level_count}")
-        print(f"Slide level dimensions: {slide.level_dimensions}")
+        print(f"Slide level count: {self.sample_slide.level_count}")
+        print(f"Slide level dimensions: {self.sample_slide.level_dimensions}")
         print(f"Slide resize dimensions: w: {self.wsi_width}, h: {self.wsi_height}")
         print(f"Sources selected: {self.sources}")
         print(f"Censored share: {np.round(len(self.omic_df[self.omic_df['censorship'] == 1])/len(self.omic_df), 3)}")
         # print(f"Target column: {self.target_col}")
 
         if full_detail:
-            pprint(dict(slide.properties))
+            pprint(dict(self.sample_slide.properties))
 
     def show_samples(self, n=1):
         # sample_df = self.omic_df.sample(n=n)
@@ -239,44 +260,59 @@ class TCGADataset(Dataset):
         region_tensor = transform(region)
         return slide, region_tensor
 
-    def load_wsi_patches(self, slide_id: str, level: int = None, patch_height: int=256, patch_width: int=256) -> Tuple:
-        """
-        Load in single slides
-        Args:
-            slide_id (str):
-            level (int):
-            patch_height (int):
-            patch_width (int):
-        Returns:
-        """
-        slide_path = self.wsi_paths[slide_id]
-        slide = OpenSlide(slide_path)
-        # need to use sampling factor to get correct coordinates (read_region uses level 0 coordinates)
-        sampling_factor = int(slide.level_downsamples[level])
+    def load_patches(self, slide_id):
 
-        (img_width, img_height) = slide.level_dimensions[level]
-        num_patches_h = int(img_height / patch_height)
-        num_patches_w = int(img_width / patch_width)
-        num_patches = num_patches_h * num_patches_w
+        # create a tensor of zeros - each sample requiring less patches will be zero-padded
+        patch_tensors = torch.zeros(self.num_patches, 4, 256, 256) # TODO - parameterise
+        slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
+        for idx, coord in enumerate(self.patch_coords[slide_id]):
+            x, y = coord
+            transform = transforms.Compose([
+                transforms.ToTensor()
+                ])
+            # patch_tensor = transform(patch)
+            patch_tensors[idx] = transform(slide.read_region((x, y), level=self.level, size=(256, 256)))
 
-        patch_list = []
-        for h in range(num_patches_h):
-            for w in range(num_patches_w):
-                y = h * patch_height * sampling_factor
-                x = w * patch_width * sampling_factor
-                patch = slide.read_region((x, y), level, (patch_width, patch_height))
-                patch_list.append(np.array(patch))
+        return slide, patch_tensors
 
-        # add transforms
-        transform = transforms.Compose([
-            transforms.ToTensor(),
-            # transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
-            # transforms.Resize((self.wsi_height, self.wsi_width)),
-            # RearrangeTransform("c h w -> h w c") # rearrange for Perceiver architecture
-        ])
-
-        patches = transform(np.array(patch_list))
-        return slide, patches
+    # def load_wsi_patches(self, slide_id: str, level: int = None, patch_height: int=256, patch_width: int=256) -> Tuple:
+    #     """
+    #     Load in single slides
+    #     Args:
+    #         slide_id (str):
+    #         level (int):
+    #         patch_height (int):
+    #         patch_width (int):
+    #     Returns:
+    #     """
+    #     slide_path = self.wsi_paths[slide_id]
+    #     slide = OpenSlide(slide_path)
+    #     # need to use sampling factor to get correct coordinates (read_region uses level 0 coordinates)
+    #     sampling_factor = int(slide.level_downsamples[level])
+    #
+    #     (img_width, img_height) = slide.level_dimensions[level]
+    #     num_patches_h = int(img_height / patch_height)
+    #     num_patches_w = int(img_width / patch_width)
+    #     num_patches = num_patches_h * num_patches_w
+    #
+    #     patch_list = []
+    #     for h in range(num_patches_h):
+    #         for w in range(num_patches_w):
+    #             y = h * patch_height * sampling_factor
+    #             x = w * patch_width * sampling_factor
+    #             patch = slide.read_region((x, y), level, (patch_width, patch_height))
+    #             patch_list.append(np.array(patch))
+    #
+    #     # add transforms
+    #     transform = transforms.Compose([
+    #         transforms.ToTensor(),
+    #         # transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
+    #         # transforms.Resize((self.wsi_height, self.wsi_width)),
+    #         # RearrangeTransform("c h w -> h w c") # rearrange for Perceiver architecture
+    #     ])
+    #
+    #     patches = transform(np.array(patch_list))
+    #     return slide, patches
 
 
 
@@ -309,6 +345,20 @@ class RepeatTransform(object):
     def __call__(self, img):
         img = repeat(img, self.pattern, b=self.b)
         return img
+
+
+# class EdgeDetectionTransform(object):
+#
+#     def __call__(self, img_tensor):
+#         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+#         edges = cv2.Canny(gray, 50, 150)
+#         # split image channels
+#         r, g, b, a = cv2.split(img)
+#
+#         edge_channel = Image.new("L", edges.size, color=128)
+#         new_image = Image.merge("RGBA")
+#         return edges
+
 
 
 if __name__ == '__main__':
