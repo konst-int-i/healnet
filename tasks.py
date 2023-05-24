@@ -88,5 +88,5 @@ def preprocess(c, dataset: str, config: str, level: int):
         c.run("git clone git@github.com:mahmoodlab/CLAM.git")
 
     c.run(f"python CLAM/create_patches_fp.py --source {raw_dir} --save_dir {preprocessed_dir} "
-          f"--patch_size {config['data.patch_size']} --patch_level {level} --seg --patch --stitch")
+          f"--patch_size {int(conf.data.patch_size)} --patch_level {int(level)} --seg --patch --stitch")
 

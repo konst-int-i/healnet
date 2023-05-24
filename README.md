@@ -43,7 +43,7 @@ If you are unsure about which arguments are available, you can always run `invok
 The script downloads the data using the given manifest files in `data/tcga/gdc_manifests/full` and save it in the data folder under `tcga/wsi/<dataset>` taking the following structure: 
 
 ```
-tcga/wsi/<dataset>/raw
+tcga/wsi/<dataset>/
 	├── slide_1.svs
 	├── slide_2.svs
 	└── ...
@@ -53,9 +53,32 @@ tcga/wsi/<dataset>/raw
 
 To ensure comparability with baselines, want to have the option to run the model in the WSI patches and extracted features using the [CLAM](https://github.com/mahmoodlab/CLAM) package. 
 
-Run the following for the 
+To extract he patches, run
 
+```bash 
+invoke preprocess --dataset <dataset> --config <config> --level <level>
+```
+Which will extract to the following structure
 
+```
+tcga/wsi/<dataset>_preprocessed/
+	├── masks
+    		├── slide_1.png
+    		├── slide_2.png
+    		└── ...
+	├── patches
+    		├── slide_1.h5
+    		├── slide_2.h5
+    		└── ...
+	├── stitches
+    		├── slide_1.png
+    		├── slide_2.png
+    		└── ...
+	└── process_list_autogen.csv
+```
+
+Note that the slide.h5 files contain the coordinates of the patches that are to be read in 
+via OpenSlide (x, y coordinates). 
 
 
 ## Running Experiments
