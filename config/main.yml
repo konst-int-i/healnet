@@ -2,34 +2,55 @@ data_path: data/
 tcga_path: data/tcga/
 gdc_client: ./gdc-client
 log_path: logs/
-
-seed: 42
+eed: 42
 
 wandb: True
 
 data:
-  level: 3
+  level: 2
   patch_size: 256
 
-task: survival  # [survival, classification]
-#model: perceiver  # [perceiver, specialist_transformer]
+task: survival # [survival, classification]
 sources:
-  - omic
-#  - slides
+#  - omic
+  - slides
+
+model: perceiver # [fcnn, perceiver]
+
+survival: # all parameters related to survival task
+  loss: nll # valid: nll, ce_survival, cox
 
 train_loop:
-  checkpoint_interval: 1
-  eval_interval: 10
+  checkpoint_interval: 10
+  eval_interval: 2
   batch_size: 4
-  epochs: 10
-  loss: nll # valid: nll, ce_survival, cox
+  epochs: 50
 
 optimizer:
   max_lr: 0.005
   lr: 0.001
   momentum: 0.9
+  weight_decay: 0.0001 # or None
 
+preprocessing:
+  resize_height: 256
+  resize_width: 256
 
 model_params:
-  output_dims: 4
-
+  output_dims: 4 # refers to n_classes for classificaiton, n_bins for survival
+  weight_decay: True
+  class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
+  num_freq_bands: 6
+  depth: 6
+  max_freq: 2.
+  num_latents: 256 #
+  latent_dim: 32
+  cross_dim_head: 16
+  latent_dim_head: 16
+  cross_heads: 1
+  latent_heads: 8
+  attn_dropout: 0.5
+  ff_dropout: 0.5
+  fourier_encode_data: True
+  self_per_cross_attn: 1  # if 0, no self attention at all
+  weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large

@@ -7,7 +7,7 @@ seed: 42
 wandb: True
 
 data:
-  level: 3
+  level: 2
   patch_size: 256
 
 task: survival # [survival, classification]
