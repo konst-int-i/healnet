@@ -13,6 +13,7 @@ from x_perceiver.train import majority_classifier_acc
 from x_perceiver.models import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss
 import numpy as np
 from torchsummary import summary
+import torch_optimizer as t_optim
 from sksurv.metrics import concordance_index_censored
 from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score
 from torch import optim
@@ -119,7 +120,7 @@ class Pipeline:
     def load_data(self):
         data = TCGADataset("blca",
                            self.config,
-                           level=3,
+                           level=int(self.config["data.level"]),
                            survival_analysis=True,
                            sources=self.sources,
                            n_bins=self.output_dims,
@@ -203,15 +204,16 @@ class Pipeline:
                     input_channels=3, # RGB, dropped alpha channel
                     input_axis=2,
                     num_freq_bands=6,
-                    depth=1,  # number of cross-attention iterations
                     max_freq=10.,
+                    depth=1,  # number of cross-attention iterations
                     num_classes=self.output_dims,
                     num_latents=256,
-                    latent_dim=256,  # latent dim of transformer
-                    cross_dim_head=32,
-                    latent_dim_head=32,
+                    latent_dim=4,  # latent dim of transformer
+                    cross_dim_head=16,
+                    latent_dim_head=16,
                     attn_dropout=0.5,
                     ff_dropout=0.5,
+                    weight_tie_layers=False,
                     cross_heads=1,
                     final_classifier_head=True
                 )
@@ -375,8 +377,9 @@ class Pipeline:
         """
         print(f"Training surivival model")
         # model.to(self.device)
-        optimizer = optim.SGD(model.parameters(),
-                              lr=self.config["optimizer.lr"], momentum=self.config["optimizer.momentum"])
+        # optimizer = optim.SGD(model.parameters(),
+        #                       lr=self.config["optimizer.lr"], momentum=self.config["optimizer.momentum"])
+        optimizer = t_optim.lamb.Lamb(model.parameters(), lr=self.config["optimizer.lr"])
         # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
                                                   max_lr=self.config["optimizer.max_lr"],
