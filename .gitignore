@@ -9,6 +9,7 @@ __pycache__/
 # subrepos
 PORPOISE/
 gdc-client/
+CLAM/
 
 # Distribution / packaging
 .Python
