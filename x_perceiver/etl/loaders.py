@@ -264,14 +264,19 @@ class TCGADataset(Dataset):
         # create a tensor of zeros - each sample requiring less patches will be zero-padded
         patch_tensors = torch.zeros(self.num_patches, 4, 256, 256) # TODO - parameterise
         slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
+
         for idx, coord in enumerate(self.patch_coords[slide_id]):
             x, y = coord
-            transform = transforms.Compose([
+            region_transform = transforms.Compose([
                 transforms.ToTensor()
                 ])
             # patch_tensor = transform(patch)
-            patch_tensors[idx] = transform(slide.read_region((x, y), level=self.level, size=(256, 256)))
+            patch_tensors[idx] = region_transform(slide.read_region((x, y), level=self.level, size=(256, 256)))
 
+        fulL_transform = transforms.Compose([
+            RearrangeTransform("p c h w -> p h w c") # rearrange for Perceiver architecture
+        ])
+        patch_tensors = fulL_transform(patch_tensors)
         return slide, patch_tensors
 
     # def load_wsi_patches(self, slide_id: str, level: int = None, patch_height: int=256, patch_width: int=256) -> Tuple:
