@@ -4,6 +4,7 @@ from torchvision import transforms
 from x_perceiver.utils import Config
 from openslide import OpenSlide
 import os
+import torchvision.models as models
 import h5py
 import torch
 import pprint
@@ -60,10 +61,10 @@ class TCGADataset(Dataset):
         self.n_bins = n_bins
         self.raw_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}")
         self.prep_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}_preprocessed_level{level}")
+        # create patch feature directory for first-time run
+        os.makedirs(self.prep_path.joinpath("patch_features"), exist_ok=True)
         self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(self.raw_path)]
-        # load the coordinates of the patches
-        self.patch_coords = self._load_patch_coords()
-        self.num_patches = max([len(coord) for coord in self.patch_coords.values()])
+
         valid_sources = ["omic", "slides"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
         self.config = config
@@ -83,6 +84,15 @@ class TCGADataset(Dataset):
         self.censorship = self.omic_df["censorship"].values
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
+
+        # Load ResNet model onto GPU for patch feature extraction
+        # load the coordinates of the patches
+        # self.patch_coords = self._load_patch_coords()
+        # self.patch_encoder = models.resnet50(weights="IMAGENET1K_V2")
+        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # self.patch_encoder.to(self.device)
+        # self.patch_encoder.eval()
+
 
         self.get_info(full_detail=False)
 
@@ -262,76 +272,33 @@ class TCGADataset(Dataset):
     def load_patches(self, slide_id):
 
         # create a tensor of zeros - each sample requiring less patches will be zero-padded
-        patch_tensors = torch.zeros(self.num_patches, 4, 256, 256) # TODO - parameterise
+        patch_tensors = torch.zeros(self.patch_coords[slide_id].shape[0], 3, 256, 256)
         slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
+
+        if self.prep_path.joinpath("patch_features", f"{slide_id}.pt").exists():
+            patch_features = torch.load(self.prep_path.joinpath("patch_features", f"{slide_id}.pt"))
+            return slide, patch_features
 
         for idx, coord in enumerate(self.patch_coords[slide_id]):
             x, y = coord
             region_transform = transforms.Compose([
-                transforms.ToTensor()
+                transforms.ToTensor(),
+                transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet normalisation
                 ])
-            # patch_tensor = transform(patch)
             patch_tensors[idx] = region_transform(slide.read_region((x, y), level=self.level, size=(256, 256)))
+            # encode using ImageNet
+            # patch_tensors.to(self.device)
+            patch_features = self.patch_encoder(patch_tensors[0])
+            patch_features = patch_features.detach().cpu()
+            # torch.save(patch_features, self.prep_path.joinpath("patch_features", f"{slide_id}.pt"))
 
-        fulL_transform = transforms.Compose([
-            RearrangeTransform("p c h w -> p h w c") # rearrange for Perceiver architecture
-        ])
-        patch_tensors = fulL_transform(patch_tensors)
+
+        # fulL_transform = transforms.Compose([
+        #     RearrangeTransform("p c h w -> p h w c") # rearrange for Perceiver architecture
+        # ])
+        # patch_tensors = fulL_transform(patch_tensors)
         return slide, patch_tensors
-
-    # def load_wsi_patches(self, slide_id: str, level: int = None, patch_height: int=256, patch_width: int=256) -> Tuple:
-    #     """
-    #     Load in single slides
-    #     Args:
-    #         slide_id (str):
-    #         level (int):
-    #         patch_height (int):
-    #         patch_width (int):
-    #     Returns:
-    #     """
-    #     slide_path = self.wsi_paths[slide_id]
-    #     slide = OpenSlide(slide_path)
-    #     # need to use sampling factor to get correct coordinates (read_region uses level 0 coordinates)
-    #     sampling_factor = int(slide.level_downsamples[level])
-    #
-    #     (img_width, img_height) = slide.level_dimensions[level]
-    #     num_patches_h = int(img_height / patch_height)
-    #     num_patches_w = int(img_width / patch_width)
-    #     num_patches = num_patches_h * num_patches_w
-    #
-    #     patch_list = []
-    #     for h in range(num_patches_h):
-    #         for w in range(num_patches_w):
-    #             y = h * patch_height * sampling_factor
-    #             x = w * patch_width * sampling_factor
-    #             patch = slide.read_region((x, y), level, (patch_width, patch_height))
-    #             patch_list.append(np.array(patch))
-    #
-    #     # add transforms
-    #     transform = transforms.Compose([
-    #         transforms.ToTensor(),
-    #         # transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
-    #         # transforms.Resize((self.wsi_height, self.wsi_width)),
-    #         # RearrangeTransform("c h w -> h w c") # rearrange for Perceiver architecture
-    #     ])
-    #
-    #     patches = transform(np.array(patch_list))
-    #     return slide, patches
-
-
-
-def to_tensor(img, dtype=torch.float32) -> torch.Tensor:
-    """
-    Helper function to convert PIL image to torch tensor and change the dtype.
-    This way, we can pass this function throough the transforms.Compose
-    Args:
-        img: PIL image
-        dtype: desired dtype of the tensor
-
-    Returns:
-        torch.Tensor: tensor of dtype
-    """
-    return transforms.ToTensor()(img).to(dtype=dtype)
 
 
 class RearrangeTransform(object):

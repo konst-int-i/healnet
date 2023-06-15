@@ -5,6 +5,7 @@ import torch
 import torch.nn as nn
 from torch.autograd.profiler import profile
 import os
+import multiprocessing
 import argparse
 from argparse import Namespace
 import yaml
@@ -78,6 +79,9 @@ class Pipeline:
         assert self.config["survival.loss"] in valid_survival_losses, f"Invalid survival loss specified. " \
                                                                    f"Valid losses are {valid_survival_losses}"
 
+        valid_datasets = ["blca", "brca"]
+        assert self.config.dataset in valid_datasets, f"Invalid dataset specified. Valid datasets are {valid_datasets}"
+
         valid_tasks = ["survival", "classification"]
         assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
 
@@ -118,7 +122,7 @@ class Pipeline:
         wandb.finish()
 
     def load_data(self):
-        data = TCGADataset("blca",
+        data = TCGADataset(self.config.dataset,
                            self.config,
                            level=int(self.config["data.level"]),
                            survival_analysis=True,
@@ -137,13 +141,17 @@ class Pipeline:
 
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
-                                shuffle=True, num_workers=os.cpu_count(),
-                                pin_memory=True, multiprocessing_context="fork",
-                                # sampler=weight_sampler
+                                shuffle=True, num_workers=multiprocessing.cpu_count(),
+                                pin_memory=True,
+                                multiprocessing_context=MP_CONTEXT,
+                                prefetch_factor=2
                                 )
 
-        test_data = DataLoader(test, batch_size=self.config["train_loop.batch_size"], shuffle=False, num_workers=os.cpu_count(),
-                                pin_memory=True, multiprocessing_context="fork")
+        test_data = DataLoader(test, batch_size=self.config["train_loop.batch_size"],
+                               shuffle=False, num_workers=multiprocessing.cpu_count(),
+                               pin_memory=True,
+                               multiprocessing_context=MP_CONTEXT,
+                               prefetch_factor=2)
         return train_data, test_data
 
     def _calc_class_weights(self, train):
@@ -208,7 +216,7 @@ class Pipeline:
                     max_freq=10.,
                     depth=1,  # number of cross-attention iterations
                     num_classes=self.output_dims,
-                    num_latents=256,
+                    num_latents=4,
                     latent_dim=4,  # latent dim of transformer
                     cross_dim_head=16,
                     latent_dim_head=16,
@@ -218,9 +226,9 @@ class Pipeline:
                     cross_heads=1,
                     final_classifier_head=True
                 )
-                model.to(self.device) # need to move to GPU to get summary
-                feat, _, _, _ = next(iter(train_data))
-                summary(model, input_size=feat.shape[1:]) # omit batch dim
+                # model.to(self.device) # need to move to GPU to get summary
+                # feat, _, _, _ = next(iter(train_data))
+                # summary(model, input_size=feat.shape[1:]) # omit batch dim
         elif self.config.model == "fcnn":
             feat, _, _, _ = next(iter(train_data))
             feat = feat.squeeze()
@@ -554,10 +562,9 @@ if __name__ == "__main__":
 
     # call config
     args = parser.parse_args()
-
+    MP_CONTEXT = "fork"
     # set up multiprocessing context for PyTorch
-    torch.multiprocessing.set_start_method('fork') #  only set once for repeated experiments to work
-
+    torch.multiprocessing.set_start_method(MP_CONTEXT)
     config_path = args.config_path
     # config_path="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml"
     config = Config(config_path).read()
@@ -566,14 +573,3 @@ if __name__ == "__main__":
             args=args,
         )
     pipeline.main()
-
-
-    # losses = ["nll", "ce_survival"]
-    # for loss in losses:
-    #     print(loss)
-    #     config["train_loop"]["loss"] = loss
-    #     display_name = f"omic_30ep_{config['train_loop']['loss']}_loss"
-    #     pipeline = Pipeline(
-    #         config=config,
-    #     )
-    #     pipeline.main()

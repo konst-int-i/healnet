@@ -4,6 +4,8 @@ gdc_client: /home/kh701/gdc-client
 log_path: /home/kh701/pycharm/x-perceiver/logs
 seed: 42
 
+dataset: brca
+
 wandb: True
 
 data:
@@ -12,8 +14,8 @@ data:
 
 task: survival # [survival, classification]
 sources:
-#  - omic
-  - slides
+  - omic
+#  - slides
 
 model: perceiver # [fcnn, perceiver]
 
@@ -23,7 +25,7 @@ survival: # all parameters related to survival task
 train_loop:
   checkpoint_interval: 10
   eval_interval: 2
-  batch_size: 4
+  batch_size: 8
   epochs: 50
 
 optimizer:
