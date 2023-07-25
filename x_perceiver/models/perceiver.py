@@ -103,7 +103,13 @@ class Attention(nn.Module):
         self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias = False)
 
         self.dropout = nn.Dropout(dropout)
-        self.to_out = nn.Linear(inner_dim, query_dim)
+        # add leaky relu
+        self.to_out = nn.Sequential(
+            nn.Linear(inner_dim, query_dim),
+            nn.LeakyReLU(negative_slope=1e-2)
+        )
+
+        # self.to_out = nn.Linear(inner_dim, query_dim)
 
     def forward(self, x, context = None, mask = None):
         h = self.heads
@@ -195,8 +201,8 @@ class Perceiver(nn.Module):
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
 
         get_cross_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, input_dim, heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dim)
-        get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
         get_latent_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, heads = latent_heads, dim_head = latent_dim_head, dropout = attn_dropout))
+        get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
         get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
 
         get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff))
