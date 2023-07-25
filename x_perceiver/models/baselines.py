@@ -29,41 +29,6 @@ class FCNN(nn.Module):
         x = self.output_layer(x)
         return x
 
-
-# class RegularizedModel(nn.Module):
-#     def __init__(self, input_dim, output_dim, dropout_rate=0.2, l1_penalty=0.01, l2_penalty=0.01):
-#         super(RegularizedModel, self).__init__()
-#
-#         # Define your layers here.
-#         self.input_layer = nn.Linear(input_dim, 128)
-#         self.hidden_layer = nn.Linear(128, 64)
-#         self.dropout_layer = nn.Dropout(dropout_rate)
-#         self.output_layer = nn.Linear(64, output_dim)
-#
-#         # Regularization penalties
-#         self.l1_penalty = l1_penalty
-#         self.l2_penalty = l2_penalty
-#
-#     def forward(self, inputs):
-#         x = F.relu(self.input_layer(inputs))
-#         x = F.relu(self.hidden_layer(x))
-#         x = self.dropout_layer(x)
-#         return torch.sigmoid(self.output_layer(x))
-#
-#     def l1_regularization(self):
-#         l1_reg = torch.tensor(0., requires_grad=True)
-#         for name, param in self.named_parameters():
-#             if 'weight' in name:
-#                 l1_reg = l1_reg + torch.norm(param, 1)
-#         return self.l1_penalty * l1_reg
-#
-#     def l2_regularization(self):
-#         l2_reg = torch.tensor(0., requires_grad=True)
-#         for name, param in self.named_parameters():
-#             if 'weight' in name:
-#                 l2_reg = l2_reg + torch.norm(param, 2)
-#         return self.l2_penalty * l2_reg
-
 class RegularizedFCNN(nn.Module):
     def __init__(self, output_dim, dropout_rate=0.2, l1_penalty=0.01, l2_penalty=0.01):
         super(RegularizedFCNN, self).__init__()
