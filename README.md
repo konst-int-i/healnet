@@ -80,6 +80,14 @@ tcga/wsi/<dataset>_preprocessed/
 Note that the slide.h5 files contain the coordinates of the patches that are to be read in 
 via OpenSlide (x, y coordinates). 
 
+On first run of the pipeline, the script will add an additional folder called `patch_features` which contains the ImageNet50 extracted features after patch normalisation as a 1024-dimensional tensor (using PyTorch serialisation). 
+
+```
+	├── patch_features
+    		├── slide_1.pt
+    		├── slide_2.pt
+    		└── ...
+```
 
 ## Running Experiments
 

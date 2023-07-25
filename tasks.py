@@ -68,7 +68,7 @@ def flatten(c, dataset: str, config: str):
     c.run(f"find {download_dir} ! -name '*.svs' -delete")
 
 @task
-def preprocess(c, dataset: str, config: str, level: int):
+def preprocess(c, dataset: str, config: str, level: int, step:str= "patch"):
     """
     Preprocesses WSI images for downstream tasks.
     Args:
@@ -83,10 +83,21 @@ def preprocess(c, dataset: str, config: str, level: int):
     raw_dir = Path(conf.tcga_path).joinpath(f"wsi/{dataset}")
     preprocessed_dir = Path(conf.tcga_path).joinpath(f"wsi/{dataset}_preprocessed_level{level}")
 
+    valid_steps = ["patch", "extract_features"]
+    assert step in valid_steps, f"Invalid step arg, must be one of {valid_steps}"
+
     # clone CLAM repo if doesn't exist
     if not os.path.exists("CLAM/"):
         c.run("git clone git@github.com:mahmoodlab/CLAM.git")
 
-    c.run(f"python CLAM/create_patches_fp.py --source {raw_dir} --save_dir {preprocessed_dir} "
+    if step == "patch":
+        c.run(f"python CLAM/create_patches_fp.py --source {raw_dir} --save_dir {preprocessed_dir} "
           f"--patch_size {int(conf.data.patch_size)} --patch_level {int(level)} --seg --patch --stitch")
+
+    if step == "extract_features":
+        # load in resnet50 model
+        pass
+
+    # run feature extraction
+
 

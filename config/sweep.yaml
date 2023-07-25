@@ -15,10 +15,10 @@ parameters:
     value: /home/kh701/pycharm/x-perceiver/logs
   model.output_dims:
     value: 4
-  model_params.class_weights:
-    values:
-      - "inverse"
-      - "inverse_root"
+#  model_params.class_weights:
+#    values:
+#      - "inverse"
+#      - "inverse_root"
   model_params.output_dims:
     value: 4
   model_params.weight_decay:

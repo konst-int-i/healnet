@@ -4,6 +4,7 @@ sys.path.append("/home/kh701/pycharm/x-perceiver/")
 import torch
 import torch.nn as nn
 from torch.autograd.profiler import profile
+from sklearn.model_selection import KFold
 import os
 import multiprocessing
 import argparse
@@ -12,10 +13,11 @@ import yaml
 from tqdm import tqdm
 from x_perceiver.train import majority_classifier_acc
 from x_perceiver.models import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss
+from x_perceiver.models.baselines import RegularizedFCNN
 import numpy as np
 from torchsummary import summary
 import torch_optimizer as t_optim
-from sksurv.metrics import concordance_index_censored
+from sksurv.metrics import concordance_index_censored, concordance_index_ipcw
 from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score
 from torch import optim
 from x_perceiver.models import Perceiver, FCNN
@@ -50,6 +52,7 @@ class Pipeline:
         torch.manual_seed(self.config.seed)
         np.random.seed(self.config.seed)
 
+        # set up wandb logging
         self.wandb_setup()
 
     def wandb_setup(self) -> None:
@@ -105,10 +108,6 @@ class Pipeline:
                 if key in self.config.keys():
                     self.config[key] = value
 
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.log_path = Path(self.config.log_path).joinpath(timestamp)
-        self.log_path.mkdir(parents=True, exist_ok=True)
-        print(f"Logging to {self.log_path}")
 
         train_data, test_data = self.load_data()
         model = self.make_model(train_data)
@@ -137,18 +136,22 @@ class Pipeline:
 
         # calculate class weights for imbalanced datasets (if model_params.class_weights is True)
         # if self.config["model_params.class_weights"] is not None:
-        weight_sampler = self._calc_class_weights(train) if self.config["model_params.class_weights"] is not None else None
+        # calculate class weights
+        self._calc_class_weights(train) if self.config["model_params.class_weights"] is not None else None
 
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
-                                shuffle=True, num_workers=multiprocessing.cpu_count(),
+                                shuffle=True,
+                                num_workers=multiprocessing.cpu_count(),
                                 pin_memory=True,
                                 multiprocessing_context=MP_CONTEXT,
                                 prefetch_factor=2
                                 )
 
-        test_data = DataLoader(test, batch_size=self.config["train_loop.batch_size"],
-                               shuffle=False, num_workers=multiprocessing.cpu_count(),
+        test_data = DataLoader(test,
+                               batch_size=self.config["train_loop.batch_size"],
+                               shuffle=False,
+                               num_workers=multiprocessing.cpu_count(),
                                pin_memory=True,
                                multiprocessing_context=MP_CONTEXT,
                                prefetch_factor=2)
@@ -181,11 +184,12 @@ class Pipeline:
         Returns:
             nn.Module: model used for training
         """
+        feat, _, _, _ = next(iter(train_data))
         if self.config.model == "perceiver":
             if self.sources == ["omic"]:
                 model = Perceiver(
-                    input_channels=1,
-                    input_axis=2, # second axis (b n_feats c)
+                    input_channels=feat.shape[2], # number of features as input channels
+                    input_axis=1, # second axis (b n_feats c)
                     num_freq_bands=self.config["model_params.num_freq_bands"],
                     depth=self.config["model_params.depth"],
                     max_freq=self.config["model_params.max_freq"],
@@ -204,14 +208,12 @@ class Pipeline:
                     final_classifier_head = True
                 )
                 model.float()
-                feat, _, _, _ = next(iter(train_data))
                 model.to(self.device)
                 summary(model, input_size=feat.shape[1:])
             elif self.sources == ["slides"]:
                 model = Perceiver(
                     input_channels=4, # RGB, dropped alpha channel
                     input_axis=3, # additional axis for patches
-                    # input_axis=2,
                     num_freq_bands=6,
                     max_freq=10.,
                     depth=1,  # number of cross-attention iterations
@@ -230,13 +232,12 @@ class Pipeline:
                 # feat, _, _, _ = next(iter(train_data))
                 # summary(model, input_size=feat.shape[1:]) # omit batch dim
         elif self.config.model == "fcnn":
-            feat, _, _, _ = next(iter(train_data))
-            feat = feat.squeeze()
+            # feat, _, _, _ = next(iter(train_data))
+            # feat = feat.squeeze()
             # modality-specific models
             if self.sources == ["omic"]:
-                model = FCNN(input_size=feat.shape[1], hidden_sizes=[128, 32, 16], output_size=self.output_dims)
+                model = RegularizedFCNN(output_dim=self.output_dims)
                 model.to(self.device)
-                summary(model, input_size=(1, feat.shape[1]))
             elif self.sources == ["slides"]:
                 model = None
                 pass
@@ -268,9 +269,9 @@ class Pipeline:
                                                   max_lr=self.config["optimizer.max_lr"],
                                                   epochs=self.config["train_loop.epochs"],
                                                   steps_per_epoch=len(train_data))
-        loss_weight = torch.tensor(self.class_weight).float().to(self.device) if self.class_weight is not None else None
+        class_weight = torch.tensor(self.class_weight).float().to(self.device) if self.class_weight is not None else None
 
-        criterion = nn.CrossEntropyLoss(weight=loss_weight)
+        criterion = nn.CrossEntropyLoss(weight=class_weight)
 
         # use survival loss for survival analysis which accounts for censored data
         model.train()
@@ -293,6 +294,8 @@ class Pipeline:
                 # forward + backward + optimize
                 outputs = model.forward(features)
                 loss = criterion(outputs, y_disc)
+                # temporary
+                # loss += model.l1_regularization() + model.l2_regularization()
                 loss.backward()
                 optimizer.step()
                 scheduler.step()
@@ -320,19 +323,15 @@ class Pipeline:
                        }, step=epoch)
             wandb.log({"train_conf_matrix": wandb.plot.confusion_matrix(y_true=labels, preds=predictions)}, step=epoch)
             running_loss = 0.0
-            # running_acc = 0.0
 
             if epoch % self.config["train_loop.eval_interval"] == 0:
                 # print("**************************")
                 # print(f"EPOCH {epoch} EVALUATION")
                 # print("**************************")
-                self.evaluate_clf_epoch(model, test_data, criterion)
+                self.evaluate_clf_epoch(model, test_data, criterion, epoch)
 
-            # checkpoint model after epoch
-            if epoch % self.config["train_loop.checkpoint_interval"] == 0:
-                torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
 
-    def evaluate_clf_epoch(self, model: nn.Module, test_data: DataLoader, criterion: nn.Module):
+    def evaluate_clf_epoch(self, model: nn.Module, test_data: DataLoader, criterion: nn.Module, epoch: int):
         model.eval()
         majority_val_acc = majority_classifier_acc(y_true=test_data.dataset.dataset.y_disc)
         val_loss = 0.0
@@ -363,6 +362,7 @@ class Pipeline:
                    "val_acc": val_acc,
                    "val_f1": val_f1,
                    })
+        wandb.log({"val_conf_matrix": wandb.plot.confusion_matrix(y_true=labels, preds=predictions)}, step=epoch)
         model.train()
 
 
@@ -465,7 +465,8 @@ class Pipeline:
             event_times_full = np.concatenate(event_times)
 
             # calculate epoch-level concordance index
-            c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
+            c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full, tied_tol=1e-08)[0]
+            # c_index = concordance_index_ipcw((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
             # f1 = f1_score(labels, predictions, average="macro")
             wandb.log({"train_loss": train_loss, "train_c_index": c_index}, step=epoch)
             print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, c_index))
@@ -476,8 +477,8 @@ class Pipeline:
                 wandb.log({"val_loss": val_loss, "val_c_index": val_c_index}, step=epoch)
 
             # checkpoint model after epoch
-            if epoch % self.config["train_loop.checkpoint_interval"] == 0:
-                torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
+            # if epoch % self.config["train_loop.checkpoint_interval"] == 0:
+            #     torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
 
     def evaluate_survival_epoch(self,
                                 epoch: int,

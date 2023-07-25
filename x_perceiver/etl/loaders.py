@@ -75,7 +75,10 @@ class TCGADataset(Dataset):
         self.omic_df = self.load_omic()
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.omic_tensor = torch.Tensor(self.features.values)
-        self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n b feat c", b=1, c=1)
+        if self.config.model == "perceiver":
+            # self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n feat c", c=1)
+            # Perceiver model expects inputs of the shape (batch_size, sequence_length, input_dim)
+            self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n seq_length feat", seq_length=1)
 
 
         self.level = level

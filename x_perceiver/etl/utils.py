@@ -19,3 +19,5 @@ def filter_manifest_files(config: Config, dataset: str):
     manifest_filtered.to_csv(write_path, sep="\t", index=False)
     print(f"Saved filtered manifest file to {write_path}")
     return None
+
+
