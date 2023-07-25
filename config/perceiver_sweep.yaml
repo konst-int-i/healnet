@@ -1,0 +1,50 @@
+method: grid
+metric:
+  goal: maximize
+  name: val_f1
+parameters:
+  model_params.weight_decay:
+    distribution: uniform
+    min: 0
+    max: 0.01
+  model_params.num_freq_bands:
+    distribution: int_uniform
+    min: 2
+    max: 8
+  model_params.depth:
+    distribution: int_uniform
+    min: 1
+    max: 4
+  model_params.max_freq:
+    values:
+      - 2.
+      - 8.
+  model_params.num_latents:
+    values:
+      - 4
+      - 16
+      - 32
+      - 64
+  model_params.latent_dim:
+    values:
+      - 4
+      - 16
+      - 32
+      - 64
+  model_params.attn_dropout:
+    distribution: uniform
+    min: 0
+    max: 0.5
+  model_params.ff_dropout:
+    distribution: uniform
+    min: 0
+    max: 0.5
+  optimizer.lr:
+    distribution: uniform
+    max: 0.002
+    min: 0.0005
+  optimizer.momentum:
+    distribution: uniform
+    max: 0.9
+    min: 0.0
+program: x_perceiver/main.py
