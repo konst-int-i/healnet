@@ -12,7 +12,7 @@ data:
   # image preprocessing
   resize: True # ONLY use for debugging - manually resize images
   resize_height: 1024 # if resize is True
-  resize_width: 512 # if resize is True
+  resize_width: 1024 # if resize is True
   patch_size: 256
   wsi_level: 3 # WSI resolution level (if available)
   patching: False # if True, patching is done in the data loader, else whole image is used
