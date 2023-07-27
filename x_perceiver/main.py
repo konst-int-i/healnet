@@ -137,7 +137,13 @@ class Pipeline:
         # calculate class weights for imbalanced datasets (if model_params.class_weights is True)
         # if self.config["model_params.class_weights"] is not None:
         # calculate class weights
-        self._calc_class_weights(train) if self.config["model_params.class_weights"] is not None else None
+        if self.config["model_params.class_weights"] == None:
+            self.class_weights = None
+        else:
+            self.class_weights = torch.Tensor(self._calc_class_weights(train)).float().to(self.device)
+
+        # self.class_weights = self._calc_class_weights(train)
+
 
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
@@ -163,17 +169,12 @@ class Pipeline:
             train_targets = np.array(train.dataset.y_disc)[train.indices]
             _, counts = np.unique(train_targets, return_counts=True)
             if self.config["model_params.class_weights"] == "inverse":
-                self.class_weight = 1. / counts
+                class_weights = 1. / counts
             elif self.config["model_params.class_weights"] == "inverse_root":
-                self.class_weight = 1. / np.sqrt(counts)
-            sample_weights = np.array([self.class_weight[t] for t in train_targets])
-            sample_weights = torch.from_numpy(sample_weights)
-            sampler = torch.utils.data.WeightedRandomSampler(weights=sample_weights.type('torch.DoubleTensor'),
-                                                                 num_samples=len(sample_weights))
-            return sampler
+                class_weights = 1. / np.sqrt(counts)
         else:
-            self.class_weight = None
-            return None
+            class_weights = None
+        return class_weights
 
     def make_model(self, train_data: DataLoader):
         """
@@ -269,9 +270,9 @@ class Pipeline:
                                                   max_lr=self.config["optimizer.max_lr"],
                                                   epochs=self.config["train_loop.epochs"],
                                                   steps_per_epoch=len(train_data))
-        class_weight = torch.tensor(self.class_weight).float().to(self.device) if self.class_weight is not None else None
 
-        criterion = nn.CrossEntropyLoss(weight=class_weight)
+
+        criterion = nn.CrossEntropyLoss(weight=self.class_weights)
 
         # use survival loss for survival analysis which accounts for censored data
         model.train()
@@ -430,7 +431,7 @@ class Pipeline:
                 if self.config["survival.loss"] == "nll":
                     # loss_fn = NLLSurvLoss()
                     # loss = loss_fn(h=hazards, y=y_disc, c=censorship)
-                    loss = nll_loss(hazards=hazards, S=survival, Y=y_disc, c=censorship)
+                    loss = nll_loss(hazards=hazards, S=survival, Y=y_disc, c=censorship, weights=self.class_weights)
                 elif self.config["survival.loss"] == "ce_survival":
                     loss_fn = CrossEntropySurvLoss()
                     loss = loss_fn(hazards=hazards, survival=survival, y_disc=y_disc, censorship=censorship)
