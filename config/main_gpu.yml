@@ -9,16 +9,25 @@ dataset: blca
 wandb: True
 
 data:
-  level: 2
+  # image preprocessing
+  resize: True # ONLY use for debugging - manually resize images
+  resize_height: 512 # if resize is True
+  resize_width: 512 # if resize is True
   patch_size: 256
+  wsi_level: 3 # WSI resolution level (if available)
+  patching: False # if True, patching is done in the data loader, else whole image is used
+
+
 
 task: survival # [survival, classification]
 sources:
-  - omic
-#  - slides
+#  - omic
+  - slides
 
 model: perceiver # [fcnn, perceiver]
 #model: fcnn
+
+
 
 survival: # all parameters related to survival task
   loss: nll # valid: nll, ce_survival, cox
@@ -27,8 +36,8 @@ survival: # all parameters related to survival task
 train_loop:
   checkpoint_interval: 10
   eval_interval: 5
-  batch_size: 8
-  epochs: 50
+  batch_size: 1
+  epochs: 100
 
 optimizer:
   max_lr: 0.005
@@ -36,24 +45,40 @@ optimizer:
   momentum: 0.95
   weight_decay: 0.0001 # or None
 
-preprocessing:
-  resize_height: 256
-  resize_width: 256
 
 model_params:
+  # OMIC
+#  output_dims: 4 # refers to n_classes for classification, n_bins for survival
+#  class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
+#  num_freq_bands: 2
+#  depth: 1
+#  max_freq: 2.
+#  num_latents: 4
+#  latent_dim: 4
+#  cross_dim_head: 16
+#  latent_dim_head: 16
+#  cross_heads: 1
+#  latent_heads: 8
+#  attn_dropout: 0
+#  ff_dropout: 0
+#  fourier_encode_data: True
+#  self_per_cross_attn: 1  # if 0, no self attention at all
+#  weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
+
+  # SLIDES
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
   num_freq_bands: 2
-  depth: 1
+  depth: 3
   max_freq: 2.
   num_latents: 4
-  latent_dim: 4
-  cross_dim_head: 16
-  latent_dim_head: 16
+  latent_dim: 16
+  cross_dim_head: 64
+  latent_dim_head: 64
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0
-  ff_dropout: 0
+  attn_dropout: 0.3
+  ff_dropout: 0.3
   fourier_encode_data: True
   self_per_cross_attn: 1  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large

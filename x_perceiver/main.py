@@ -123,7 +123,7 @@ class Pipeline:
     def load_data(self):
         data = TCGADataset(self.config.dataset,
                            self.config,
-                           level=int(self.config["data.level"]),
+                           level=int(self.config["data.wsi_level"]),
                            survival_analysis=True,
                            sources=self.sources,
                            n_bins=self.output_dims,
@@ -213,8 +213,8 @@ class Pipeline:
                 summary(model, input_size=feat.shape[1:])
             elif self.sources == ["slides"]:
                 model = Perceiver(
-                    input_channels=4, # RGB, dropped alpha channel
-                    input_axis=3, # additional axis for patches
+                    input_channels=3, # RGB, dropped alpha channel # will be n_channels
+                    input_axis=2, # additional axis for patches
                     num_freq_bands=6,
                     max_freq=10.,
                     depth=1,  # number of cross-attention iterations
@@ -229,9 +229,9 @@ class Pipeline:
                     cross_heads=1,
                     final_classifier_head=True
                 )
-                # model.to(self.device) # need to move to GPU to get summary
-                # feat, _, _, _ = next(iter(train_data))
-                # summary(model, input_size=feat.shape[1:]) # omit batch dim
+                model.to(self.device) # need to move to GPU to get summary
+                feat, _, _, _ = next(iter(train_data))
+                summary(model, input_size=feat.shape[1:]) # omit batch dim
         elif self.config.model == "fcnn":
             # feat, _, _, _ = next(iter(train_data))
             # feat = feat.squeeze()
