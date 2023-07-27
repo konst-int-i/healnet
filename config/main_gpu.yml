@@ -11,7 +11,7 @@ wandb: True
 data:
   # image preprocessing
   resize: True # ONLY use for debugging - manually resize images
-  resize_height: 512 # if resize is True
+  resize_height: 1024 # if resize is True
   resize_width: 512 # if resize is True
   patch_size: 256
   wsi_level: 3 # WSI resolution level (if available)
@@ -36,7 +36,7 @@ survival: # all parameters related to survival task
 train_loop:
   checkpoint_interval: 10
   eval_interval: 5
-  batch_size: 1
+  batch_size: 4
   epochs: 100
 
 optimizer:

@@ -121,7 +121,7 @@ class Pipeline:
         wandb.finish()
 
     def load_data(self):
-        data = TCGADataset(self.config.dataset,
+        data = TCGADataset(self.config["dataset"],
                            self.config,
                            level=int(self.config["data.wsi_level"]),
                            survival_analysis=True,

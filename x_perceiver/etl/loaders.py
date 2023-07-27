@@ -84,7 +84,7 @@ class TCGADataset(Dataset):
 
         self.level = level
         self.slide_idx: dict = self._get_slide_idx() # {idx (molecular_df): slide_id}
-        self.wsi_width, self.wsi_height = self.get_resize_dims(level=self.level, override=config.data.resize)
+        self.wsi_width, self.wsi_height = self.get_resize_dims(level=self.level, override=config["data.resize"])
         self.censorship = self.omic_df["censorship"].values
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
@@ -129,8 +129,8 @@ class TCGADataset(Dataset):
             width = round(width/patch_width)*patch_width
             height = round(height/patch_height)*patch_height
         else:
-            width = self.config.data.resize_width
-            height = self.config.data.resize_height
+            width = self.config["data.resize_width"]
+            height = self.config["data.resize_height"]
         return width, height
 
     def _get_slide_idx(self):
