@@ -12,7 +12,7 @@ from argparse import Namespace
 import yaml
 from tqdm import tqdm
 from x_perceiver.train import majority_classifier_acc
-from x_perceiver.models import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss
+from x_perceiver.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
 from x_perceiver.models.baselines import RegularizedFCNN
 import numpy as np
 from torchsummary import summary
@@ -385,9 +385,6 @@ class Pipeline:
 
         """
         print(f"Training surivival model")
-        # model.to(self.device)
-        # optimizer = optim.SGD(model.parameters(),
-        #                       lr=self.config["optimizer.lr"], momentum=self.config["optimizer.momentum"])
         optimizer = t_optim.lamb.Lamb(model.parameters(), lr=self.config["optimizer.lr"])
         # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
@@ -396,13 +393,13 @@ class Pipeline:
                                                   steps_per_epoch=len(train_data))
 
         model.train()
-
         for epoch in range(self.config["train_loop.epochs"]):
             print(f"Epoch {epoch}")
             risk_scores = []
             censorships = []
             event_times = []
-            train_loss_surv, train_loss = 0.0, 0.0
+            # train_loss_surv, train_loss = 0.0, 0.0
+            train_loss = 0.0
             predictions = []
             labels = []
 
@@ -419,13 +416,21 @@ class Pipeline:
 
                 optimizer.zero_grad()
                 # forward + backward + optimize
-                y_hat = model.forward(features)  # model predictions of survival time bucket (shape is n_bins)
-                hazards = torch.sigmoid(y_hat)  # sigmoid to get hazards from predictions for surv analysis
+                logits = model.forward(features)
+                y_hat = torch.topk(logits, k=1, dim=1)[1]
+                hazards = torch.sigmoid(logits)  # sigmoid to get hazards from predictions for surv analysis
                 survival = torch.cumprod(1-hazards, dim=1)  # as per paper, survival = cumprod(1-hazards)
                 risk = -torch.sum(survival, dim=1).detach().cpu().numpy()  # risk = -sum(survival)
+
+                # print(f"{logits=}")
+                # print(f"{y_hat=}")
+                # print(f"{hazards=}")
+                # print(f"{survival=}")
+                # print(f"{risk=}")
                 if self.config["survival.loss"] == "nll":
-                    loss_fn = NLLSurvLoss()
-                    loss = loss_fn(h=y_hat, y=y_disc, c=censorship)
+                    # loss_fn = NLLSurvLoss()
+                    # loss = loss_fn(h=hazards, y=y_disc, c=censorship)
+                    loss = nll_loss(hazards=hazards, S=survival, Y=y_disc, c=censorship)
                 elif self.config["survival.loss"] == "ce_survival":
                     loss_fn = CrossEntropySurvLoss()
                     loss = loss_fn(hazards=hazards, survival=survival, y_disc=y_disc, censorship=censorship)
@@ -438,38 +443,31 @@ class Pipeline:
                 censorships.append(censorship.detach().cpu().numpy())
                 event_times.append(event_time.detach().cpu().numpy())
 
-                predictions.append(y_hat.argmax(1).cpu().tolist())
-                labels.append(y_disc.cpu().tolist())
-
                 loss_value = loss.item()
-                train_loss_surv += loss_value
+                # train_loss_surv += loss_value
                 train_loss += loss_value + loss_reg
-
                 # backward pass
                 loss = loss / gc + loss_reg # gradient accumulation step
                 loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
 
-                if (batch + 1) % gc == 0:
-                    optimizer.step()
-                    optimizer.zero_grad()
-
-            # calculate epoch-level stats
-            predictions = np.concatenate(predictions)
-            labels = np.concatenate(labels)
-
-            train_loss_surv /= len(train_data)
+                # if (batch + 1) % gc == 0:
             train_loss /= len(train_data)
 
             risk_scores_full = np.concatenate(risk_scores)
             censorships_full = np.concatenate(censorships)
             event_times_full = np.concatenate(event_times)
 
+            # print(f"{risk_scores_full=}")
+            # print(f"{censorships_full=}")
+            # print(f"{event_times_full=}")
+
             # calculate epoch-level concordance index
-            c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full, tied_tol=1e-08)[0]
-            # c_index = concordance_index_ipcw((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
+            train_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full, tied_tol=1e-08)[0]
             # f1 = f1_score(labels, predictions, average="macro")
-            wandb.log({"train_loss": train_loss, "train_c_index": c_index}, step=epoch)
-            print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, c_index))
+            wandb.log({"train_loss": train_loss, "train_c_index": train_c_index}, step=epoch)
+            print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, train_c_index))
 
 
             if epoch % self.config["train_loop.eval_interval"] == 0:
@@ -559,7 +557,7 @@ if __name__ == "__main__":
     # assumes execution
     parser.add_argument("--config_path", type=str, default="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml", help="Path to config file")
     parser.add_argument("--hyperparameter_sweep", type=bool, default=False, help="Whether to run wandb hyperparameter sweep")
-    parser.add_argument("--sweep_config", type=str, default="config/sweep.yaml", help="Hyperparameter sweep configuration")
+    parser.add_argument("--sweep_config", type=str, default="config/sweep_bayesian.yaml", help="Hyperparameter sweep configuration")
 
     # call config
     args = parser.parse_args()

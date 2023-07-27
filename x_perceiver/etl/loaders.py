@@ -53,12 +53,14 @@ class TCGADataset(Dataset):
             # get overall sample
             >>>
         """
+        self.config = config
         self.dataset = dataset
         self.sources = sources
         self.filter_omic = filter_omic
         self.survival_analysis = survival_analysis
         self.num_classes = num_classes
         self.n_bins = n_bins
+        self.subset = self.config["survival.subset"]
         self.raw_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}")
         self.prep_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}_preprocessed_level{level}")
         # create patch feature directory for first-time run
@@ -67,7 +69,6 @@ class TCGADataset(Dataset):
 
         valid_sources = ["omic", "slides"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
-        self.config = config
         self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
         self.sample_slide_id = next(iter(self.wsi_paths.keys()))
         self.sample_slide = OpenSlide(self.wsi_paths[self.sample_slide_id])
@@ -187,6 +188,7 @@ class TCGADataset(Dataset):
         print(f"Slide resize dimensions: w: {self.wsi_width}, h: {self.wsi_height}")
         print(f"Sources selected: {self.sources}")
         print(f"Censored share: {np.round(len(self.omic_df[self.omic_df['censorship'] == 1])/len(self.omic_df), 3)}")
+        print(f"Survival_bin_sizes: \n {self.omic_df['y_disc'].value_counts()}")
         # print(f"Target column: {self.target_col}")
 
         if full_detail:
@@ -213,9 +215,13 @@ class TCGADataset(Dataset):
 
 
 
-    def load_omic(self, eps: float = 1e-6) -> pd.DataFrame:
+    def load_omic(self,
+                  eps: float = 1e-6
+                  ) -> pd.DataFrame:
         data_path = Path(self.config.tcga_path).joinpath(f"omic/tcga_{self.dataset}_all_clean.csv.zip")
         df = pd.read_csv(data_path, compression="zip", header=0, index_col=0, low_memory=False)
+        valid_subsets = ["all", "uncensored", "censored"]
+        assert self.subset in valid_subsets, "Invalid cut specified. Must be one of 'all', 'uncensored', 'censored'"
 
         # filter samples for which there are no slides available
         if self.filter_omic:
@@ -225,15 +231,20 @@ class TCGADataset(Dataset):
 
         # assign target column (high vs. low risk in equal parts of survival)
         label_col = "survival_months"
-        uncensored_df = df[df["censorship"] == 0] # patients with an event (e.g., death)
+        if self.subset == "all":
+            df["y_disc"] = pd.qcut(df[label_col], q=self.n_bins, labels=False).values
+        else:
+            if self.subset == "censored":
+                subset_df = df[df["censorship"] == 1]
+            elif self.subset == "uncensored":
+                subset_df = df[df["censorship"] == 0]
+            # take q_bins from uncensored patients
+            disc_labels, q_bins = pd.qcut(subset_df[label_col], q=self.n_bins, retbins=True, labels=False)
+            q_bins[-1] = df[label_col].max() + eps
+            q_bins[0] = df[label_col].min() - eps
+            # use bin cuts to discretize all patients
+            df["y_disc"] = pd.cut(df[label_col], bins=q_bins, retbins=False, labels=False, right=False, include_lowest=True).values
 
-        # take q_bins from uncensored patients
-        disc_labels, q_bins = pd.qcut(uncensored_df[label_col], q=self.n_bins, retbins=True, labels=False)
-        q_bins[-1] = df[label_col].max() + eps
-        q_bins[0] = df[label_col].min() - eps
-
-        # use bin cuts to discretize all patients
-        df["y_disc"] = pd.cut(df[label_col], bins=q_bins, retbins=False, labels=False, right=False, include_lowest=True).values
         df["y_disc"] = df["y_disc"].astype(int)
 
         return df
