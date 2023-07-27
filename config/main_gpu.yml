@@ -4,7 +4,7 @@ gdc_client: /home/kh701/gdc-client
 log_path: /home/kh701/pycharm/x-perceiver/logs
 seed: 42
 
-dataset: brca
+dataset: blca
 
 wandb: True
 
@@ -22,7 +22,7 @@ model: perceiver # [fcnn, perceiver]
 
 survival: # all parameters related to survival task
   loss: nll # valid: nll, ce_survival, cox
-  subset: censored # subset used to calculate survival bin cutoffs
+  subset: uncensored # subset used to calculate survival bin cutoffs
 
 train_loop:
   checkpoint_interval: 10
