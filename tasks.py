@@ -28,6 +28,10 @@ def download(c, dataset:str, config:str, samples: int = None):
     conf = Config(config).read()
     download_dir = Path(conf.tcga_path).joinpath(f"wsi/{dataset}")
 
+    # create download dir if doesn't exist (first time running)
+    if not download_dir.exists():
+        download_dir.mkdir(parents=True)
+
     assert dataset in valid_datasets, f"Invalid dataset arg, must be one of {valid_datasets}"
 
     manifest_path = Path(f"./data/tcga/gdc_manifests/filtered/{dataset}_wsi_manifest_filtered.txt")
@@ -40,11 +44,16 @@ def download(c, dataset:str, config:str, samples: int = None):
         manifest.to_csv(tmp_path, sep="\t", index=False)
         print(f"Downloading {manifest.shape[0]} files from {dataset} dataset...")
         c.run(f"{conf.gdc_client} download -m {tmp_path} -d {download_dir}")
-        # cleanupJ
+        # cleanup
         os.remove(tmp_path)
 
     else:
-        c.run(f"{conf.gdc_client} download -m {manifest_path} -d {download_dir}")
+        command = f"{conf.gdc_client} download -m {manifest_path} -d {download_dir}"
+        try:
+            c.run(command)
+        except Exception as e:
+            print(f"Error occurred: {e}")
+            print(f"Command: {command}")
 
     # flatten directory structure (required to easily run CLAM preprocessing)
     flatten(c, dataset, config)
