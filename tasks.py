@@ -23,8 +23,8 @@ def install(c, system: str):
     os.remove("gdc-client.zip")
 
 @task
-def download(c, dataset:str, config:str, samples: int = None):
-    valid_datasets = ["brca", "blca", "kirp", "ucec"]
+def download(c, dataset:str, config:str="config/main_gpu.yml", samples: int = None):
+    valid_datasets = ["brca", "blca", "kirp", "ucec", "hnsc", "paad", "luad", "lusc"]
     conf = Config(config).read()
     download_dir = Path(conf.tcga_path).joinpath(f"wsi/{dataset}")
 
