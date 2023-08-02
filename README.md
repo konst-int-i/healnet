@@ -89,6 +89,23 @@ On first run of the pipeline, the script will add an additional folder called `p
     		└── ...
 ```
 
+
+### Datasets
+
+We use the following datasets for the HEALNet experiments: 
+
+#### TCGA
+- [BLCA](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=16056367): Urothelial Bladder Carcinoma 
+- [BRCA](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=3539225): Breast Invasive Carcinoma 
+- [UCEC](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=19039602): Uterine Corpus Endometrial Carcinoma
+- [KIRP](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=11829555): cevical Kidney Renal Papillary Cell Carcinoma
+
+BRCA and BLCA were chosen since they have a relatively high number of patients available in the TCGA data and are relatively well-studied. UCEC has been shown to have the highest overall WSI performance (and attribution) whilst KIRP has the highest performance on standalone omic data. 
+
+
+#### Biobank
+
+
 ## Running Experiments
 
 ### Single run
