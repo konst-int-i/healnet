@@ -24,13 +24,14 @@ def install(c, system: str):
 
 @task
 def download(c, dataset:str, config:str, samples: int = None):
-    valid_datasets = ["brca", "blca"]
+    valid_datasets = ["brca", "blca", "kirp", "ucec"]
     conf = Config(config).read()
     download_dir = Path(conf.tcga_path).joinpath(f"wsi/{dataset}")
 
     assert dataset in valid_datasets, f"Invalid dataset arg, must be one of {valid_datasets}"
 
-    manifest_path = Path(conf.tcga_path).joinpath(f"gdc_manifests/filtered/{dataset}_wsi_manifest_filtered.txt")
+    manifest_path = Path(f"./data/tcga/gdc_manifests/filtered/{dataset}_wsi_manifest_filtered.txt")
+    # manifest_path = Path(conf.tcga_path).joinpath(f"gdc_manifests/filtered/{dataset}_wsi_manifest_filtered.txt")
     # Download entire manifest unless specified otherwise
     if samples is not None:
         manifest = pd.read_csv(manifest_path, sep="\t")
