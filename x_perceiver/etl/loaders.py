@@ -4,6 +4,7 @@ from torchvision import transforms
 from x_perceiver.utils import Config
 from openslide import OpenSlide
 import os
+from multiprocessing import Pool, cpu_count, Manager
 import torchvision.models as models
 import h5py
 import torch
@@ -62,15 +63,17 @@ class TCGADataset(Dataset):
         self.n_bins = n_bins
         self.subset = self.config["survival.subset"]
         self.raw_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}")
-        self.prep_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}_preprocessed_level{level}")
+        prep_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}_preprocessed_level{level}")
+        self.prep_path = prep_path
         # create patch feature directory for first-time run
         os.makedirs(self.prep_path.joinpath("patch_features"), exist_ok=True)
-        self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(self.raw_path)]
+        self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(prep_path.joinpath("patches"))]
+        # self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(self.raw_path)]
 
         valid_sources = ["omic", "slides"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
         self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
-        self.sample_slide_id = next(iter(self.wsi_paths.keys()))
+        self.sample_slide_id = self.slide_ids[0] + ".svs"
         self.sample_slide = OpenSlide(self.wsi_paths[self.sample_slide_id])
         # pre-load and transform omic data
         self.omic_df = self.load_omic()
@@ -88,22 +91,9 @@ class TCGADataset(Dataset):
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
 
-        # preload features
-        self.patch_features: dict = self.prefetch_patch_features()
-
-
-        # # Load ResNet model onto GPU for patch feature extraction
-        # # load the coordinates of the patches
-        # self.patch_coords: dict = self._load_patch_coords()
-        # self.max_patches: int = max([self.patch_coords.get(key).shape[0] for key in self.patch_coords.keys()])
-        # self.encoding_dims = 2048
-        # self.patch_encoder = models.resnet50(weights="IMAGENET1K_V2")
-        # self.patch_encoder = torch.nn.Sequential(*(list(self.patch_encoder.children())[:-1])) # remove classifier head
-        # # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # # self.patch_encoder.to(self.device)
-        # self.patch_encoder.eval()
-
-
+        manager = Manager()
+        self.patch_cache = manager.dict()
+        print(f"Dataloader initialised for {dataset} dataset")
         self.get_info(full_detail=False)
 
     def __getitem__(self, index):
@@ -116,10 +106,15 @@ class TCGADataset(Dataset):
 
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
-            # slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
-            # slide, slide_tensor = self.load_patches(slide_id)
-            # slide, slide_tensor = self.load_patch_features(slide_id)
-            slide_tensor = self.patch_features[slide_id]
+            if index not in self.patch_cache:
+                slide, slide_tensor = self.load_patch_features(slide_id)
+                self.patch_cache[index] = slide_tensor
+                print(self.patch_cache.keys())
+                print(len(self.patch_cache))
+            else:
+                # print("cache hit")
+                slide_tensor = self.patch_cache[index]
+
             return slide_tensor, censorship, event_time, y_disc
         else: # both
             pass
@@ -141,8 +136,9 @@ class TCGADataset(Dataset):
         return width, height
 
     def _get_slide_idx(self):
-        # filter slide index to only include samples with WSIs available
-        tmp_df = self.omic_df[self.omic_df.slide_id.isin(self.wsi_paths.keys())]
+        # filter slide index to only include samples with WSIs availables
+        filter_keys = [slide_id + ".svs" for slide_id in self.slide_ids]
+        tmp_df = self.omic_df[self.omic_df.slide_id.isin(filter_keys)]
         return dict(zip(tmp_df.index, tmp_df["slide_id"]))
 
     def __len__(self):
@@ -151,7 +147,7 @@ class TCGADataset(Dataset):
             return self.omic_df.shape[0]
         else:
             # only use overlap otherwise
-            return len(self.wsi_paths)
+            return len(self.slide_ids)
     def _get_slide_dict(self):
         """
         Given the download structure of the gdc-client, each slide is stored in a folder
@@ -234,7 +230,9 @@ class TCGADataset(Dataset):
         # filter samples for which there are no slides available
         if self.filter_omic:
             start_shape = df.shape[0]
-            df = df[df["slide_id"].isin(self.wsi_paths.keys())]
+            # take only samples for which there are preprocessed slides available
+            filter_keys = [slide_id + ".svs" for slide_id in self.slide_ids]
+            df = df[df["slide_id"].isin(filter_keys)]
             print(f"Filtered out {start_shape - df.shape[0]} samples for which there are no slides available")
 
         # assign target column (high vs. low risk in equal parts of survival)
@@ -292,7 +290,20 @@ class TCGADataset(Dataset):
         region_tensor = transform(region)
         return slide, region_tensor
 
-    def load_patch_features(self, slide_id: str) -> Tuple:
+    def prefetch_patch_features(self) -> Dict:
+        """
+        Prefetches patch features for all slides in the dataset
+        Returns:
+
+        """
+        print(f"Prefecting patch features")
+        patch_features = {}
+        for idx, slide_id in enumerate(self.slide_ids):
+            print(f"Slide {idx + 1}/{len(self.slide_ids)}")
+            _, patch_features[slide_id] = self.load_patch_features(slide_id)
+        return patch_features
+
+    def load_patch_features(self, slide_id: str) -> torch.Tensor:
         """
 
         Args:
@@ -310,21 +321,8 @@ class TCGADataset(Dataset):
 
         return slide, patch_features
 
-    def prefetch_patch_features(self) -> Dict:
-        """
-        Prefetches patch features for all slides in the dataset
-        Returns:
 
-        """
-        print(f"Prefecting patch features")
-        patch_features = {}
 
-        slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in self.wsi_paths.keys()]
-
-        for idx, slide_id in enumerate(slide_ids):
-            print(f"Slide {idx + 1}/{len(slide_ids)}")
-            _, patch_features[slide_id] = self.load_patch_features(slide_id)
-        return patch_features
 
     # def load_patches(self, slide_id):
     #     """

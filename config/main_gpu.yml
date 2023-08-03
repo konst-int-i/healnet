@@ -15,7 +15,8 @@ data:
   resize_width: 1024 # if resize is True
   patch_size: 256 # don't changed if used for pre-processing
   wsi_level: 2 # WSI resolution level (if available)
-  patching: False # if True, patching is done in the data loader, else whole image is used
+#  patching: False # if True, patching is done in the data loader, else whole image is used
+  prefetch: False
 
 
 
@@ -36,7 +37,7 @@ survival: # all parameters related to survival task
 train_loop:
   checkpoint_interval: 10
   eval_interval: 5
-  batch_size: 4
+  batch_size: 8
   epochs: 50
 
 optimizer:

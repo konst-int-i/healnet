@@ -288,7 +288,7 @@ class Pipeline:
                 # only move to GPU now (use CPU for preprocessing)
                 labels.append(y_disc.tolist())
                 y_disc = y_disc.to(self.device)
-                # features = features.to(self.device)
+                features = features.to(self.device)
                 # features, y_disc = features.to(self.device), y_disc.to(self.device)
                 if batch == 0 and epoch == 0: # print model summary
                     print(features.shape)
@@ -403,8 +403,6 @@ class Pipeline:
             event_times = []
             # train_loss_surv, train_loss = 0.0, 0.0
             train_loss = 0.0
-            predictions = []
-            labels = []
 
             for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
