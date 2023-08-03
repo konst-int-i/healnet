@@ -187,51 +187,51 @@ class Pipeline:
         """
         feat, _, _, _ = next(iter(train_data))
         if self.config.model == "perceiver":
-            if self.sources == ["omic"]:
-                model = Perceiver(
-                    input_channels=feat.shape[2], # number of features as input channels
-                    input_axis=1, # second axis (b n_feats c)
-                    num_freq_bands=self.config["model_params.num_freq_bands"],
-                    depth=self.config["model_params.depth"],
-                    max_freq=self.config["model_params.max_freq"],
-                    num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
-                    num_latents = self.config["model_params.num_latents"],
-                    latent_dim = self.config["model_params.latent_dim"],
-                    cross_dim_head = self.config["model_params.cross_dim_head"],
-                    latent_dim_head = self.config["model_params.latent_dim_head"],
-                    cross_heads = self.config["model_params.cross_heads"],
-                    latent_heads = self.config["model_params.latent_heads"],
-                    attn_dropout = self.config["model_params.attn_dropout"],  # non-default
-                    ff_dropout = self.config["model_params.ff_dropout"],  # non-default
-                    weight_tie_layers = self.config["model_params.weight_tie_layers"],
-                    fourier_encode_data = self.config["model_params.fourier_encode_data"],
-                    self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
-                    final_classifier_head = True
-                )
-                model.float()
-                model.to(self.device)
-                summary(model, input_size=feat.shape[1:])
-            elif self.sources == ["slides"]:
-                model = Perceiver(
-                    input_channels=3, # RGB, dropped alpha channel # will be n_channels
-                    input_axis=2, # additional axis for patches
-                    num_freq_bands=6,
-                    max_freq=10.,
-                    depth=1,  # number of cross-attention iterations
-                    num_classes=self.output_dims,
-                    num_latents=4,
-                    latent_dim=4,  # latent dim of transformer
-                    cross_dim_head=16,
-                    latent_dim_head=16,
-                    attn_dropout=0.5,
-                    ff_dropout=0.5,
-                    weight_tie_layers=False,
-                    cross_heads=1,
-                    final_classifier_head=True
-                )
-                model.to(self.device) # need to move to GPU to get summary
-                feat, _, _, _ = next(iter(train_data))
-                summary(model, input_size=feat.shape[1:]) # omit batch dim
+            model = Perceiver(
+                input_channels=feat.shape[2], # number of features as input channels
+                input_axis=1, # second axis (b n_feats c)
+                num_freq_bands=self.config["model_params.num_freq_bands"],
+                depth=self.config["model_params.depth"],
+                max_freq=self.config["model_params.max_freq"],
+                num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
+                num_latents = self.config["model_params.num_latents"],
+                latent_dim = self.config["model_params.latent_dim"],
+                cross_dim_head = self.config["model_params.cross_dim_head"],
+                latent_dim_head = self.config["model_params.latent_dim_head"],
+                cross_heads = self.config["model_params.cross_heads"],
+                latent_heads = self.config["model_params.latent_heads"],
+                attn_dropout = self.config["model_params.attn_dropout"],  # non-default
+                ff_dropout = self.config["model_params.ff_dropout"],  # non-default
+                weight_tie_layers = self.config["model_params.weight_tie_layers"],
+                fourier_encode_data = self.config["model_params.fourier_encode_data"],
+                self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
+                final_classifier_head = True
+            )
+            model.float()
+            model.to(self.device)
+            summary(model, input_size=feat.shape[1:])
+            # elif self.sources == ["slides"]:
+            #     model = Perceiver(
+            #         input_channels=feat.shape[2], # number of patches as input channels
+            #         input_axis=1, # feature axis
+            #
+            #         # num_freq_bands=6,
+            #         # max_freq=10.,
+            #         # depth=1,  # number of cross-attention iterations
+            #         # num_classes=self.output_dims,
+            #         # num_latents=4,
+            #         # latent_dim=4,  # latent dim of transformer
+            #         # cross_dim_head=16,
+            #         # latent_dim_head=16,
+            #         # attn_dropout=0.5,
+            #         # ff_dropout=0.5,
+            #         # weight_tie_layers=False,
+            #         # cross_heads=1,
+            #         # final_classifier_head=True
+            #     )
+            #     model.to(self.device) # need to move to GPU to get summary
+            #     feat, _, _, _ = next(iter(train_data))
+            #     summary(model, input_size=feat.shape[1:]) # omit batch dim
         elif self.config.model == "fcnn":
             # feat, _, _, _ = next(iter(train_data))
             # feat = feat.squeeze()
@@ -287,7 +287,9 @@ class Pipeline:
             for batch, (features, _, _, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
                 labels.append(y_disc.tolist())
-                features, y_disc = features.to(self.device), y_disc.to(self.device)
+                y_disc = y_disc.to(self.device)
+                # features = features.to(self.device)
+                # features, y_disc = features.to(self.device), y_disc.to(self.device)
                 if batch == 0 and epoch == 0: # print model summary
                     print(features.shape)
                     print(features.dtype)
@@ -566,7 +568,6 @@ if __name__ == "__main__":
     # set up multiprocessing context for PyTorch
     torch.multiprocessing.set_start_method(MP_CONTEXT)
     config_path = args.config_path
-    # config_path="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml"
     config = Config(config_path).read()
     pipeline = Pipeline(
             config=config,

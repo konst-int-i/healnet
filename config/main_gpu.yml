@@ -13,8 +13,8 @@ data:
   resize: True # ONLY use for debugging - manually resize images
   resize_height: 1024 # if resize is True
   resize_width: 1024 # if resize is True
-  patch_size: 256
-  wsi_level: 3 # WSI resolution level (if available)
+  patch_size: 256 # don't changed if used for pre-processing
+  wsi_level: 2 # WSI resolution level (if available)
   patching: False # if True, patching is done in the data loader, else whole image is used
 
 
@@ -37,7 +37,7 @@ train_loop:
   checkpoint_interval: 10
   eval_interval: 5
   batch_size: 4
-  epochs: 100
+  epochs: 50
 
 optimizer:
   max_lr: 0.005
@@ -70,11 +70,11 @@ model_params:
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
   num_freq_bands: 2
   depth: 3
-  max_freq: 2.
+  max_freq: 8.
   num_latents: 4
-  latent_dim: 16
-  cross_dim_head: 64
-  latent_dim_head: 64
+  latent_dim: 32
+  cross_dim_head: 128
+  latent_dim_head: 128
   cross_heads: 1
   latent_heads: 8
   attn_dropout: 0.3

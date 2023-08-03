@@ -77,7 +77,6 @@ class TCGADataset(Dataset):
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.omic_tensor = torch.Tensor(self.features.values)
         if self.config.model == "perceiver":
-            # self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n feat c", c=1)
             # Perceiver model expects inputs of the shape (batch_size, sequence_length, input_dim)
             self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n seq_length feat", seq_length=1)
 
@@ -89,12 +88,19 @@ class TCGADataset(Dataset):
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
 
-        # Load ResNet model onto GPU for patch feature extraction
-        # load the coordinates of the patches
-        # self.patch_coords = self._load_patch_coords()
+        # preload features
+        self.patch_features: dict = self.prefetch_patch_features()
+
+
+        # # Load ResNet model onto GPU for patch feature extraction
+        # # load the coordinates of the patches
+        # self.patch_coords: dict = self._load_patch_coords()
+        # self.max_patches: int = max([self.patch_coords.get(key).shape[0] for key in self.patch_coords.keys()])
+        # self.encoding_dims = 2048
         # self.patch_encoder = models.resnet50(weights="IMAGENET1K_V2")
-        # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        # self.patch_encoder.to(self.device)
+        # self.patch_encoder = torch.nn.Sequential(*(list(self.patch_encoder.children())[:-1])) # remove classifier head
+        # # self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        # # self.patch_encoder.to(self.device)
         # self.patch_encoder.eval()
 
 
@@ -110,9 +116,10 @@ class TCGADataset(Dataset):
 
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
-            slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
+            # slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
             # slide, slide_tensor = self.load_patches(slide_id)
-            # slide, slide_tensor = self.load_wsi_patches(slide_id, level=self.level)
+            # slide, slide_tensor = self.load_patch_features(slide_id)
+            slide_tensor = self.patch_features[slide_id]
             return slide_tensor, censorship, event_time, y_disc
         else: # both
             pass
@@ -160,7 +167,8 @@ class TCGADataset(Dataset):
 
     def _load_patch_coords(self):
         """
-        Loads all patch coordinates for the dataset and level specified in the config
+        Loads all patch coordinates for the dataset and level specified in the config and writes it to a dictionary
+        with key: slide_id and value: patch coordinates (where each coordinate is a x,y tupe)
         """
         coords = {}
         for slide_id in self.slide_ids:
@@ -284,36 +292,74 @@ class TCGADataset(Dataset):
         region_tensor = transform(region)
         return slide, region_tensor
 
-    def load_patches(self, slide_id):
+    def load_patch_features(self, slide_id: str) -> Tuple:
+        """
 
-        # create a tensor of zeros - each sample requiring less patches will be zero-padded
-        patch_tensors = torch.zeros(self.patch_coords[slide_id].shape[0], 3, 256, 256)
+        Args:
+            slide_id:
+            level:
+
+        Returns:
+
+        """
+        load_path = self.prep_path.joinpath(f"patch_features/{slide_id}.pt")
         slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
 
-        if self.prep_path.joinpath("patch_features", f"{slide_id}.pt").exists():
-            patch_features = torch.load(self.prep_path.joinpath("patch_features", f"{slide_id}.pt"))
-            return slide, patch_features
+        patch_features = torch.load(load_path)
+        patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
 
-        for idx, coord in enumerate(self.patch_coords[slide_id]):
-            x, y = coord
-            region_transform = transforms.Compose([
-                transforms.ToTensor(),
-                transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
-                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet normalisation
-                ])
-            patch_tensors[idx] = region_transform(slide.read_region((x, y), level=self.level, size=(256, 256)))
-            # encode using ImageNet
-            # patch_tensors.to(self.device)
-            patch_features = self.patch_encoder(patch_tensors[0])
-            patch_features = patch_features.detach().cpu()
-            # torch.save(patch_features, self.prep_path.joinpath("patch_features", f"{slide_id}.pt"))
+        return slide, patch_features
 
+    def prefetch_patch_features(self) -> Dict:
+        """
+        Prefetches patch features for all slides in the dataset
+        Returns:
 
-        # fulL_transform = transforms.Compose([
-        #     RearrangeTransform("p c h w -> p h w c") # rearrange for Perceiver architecture
-        # ])
-        # patch_tensors = fulL_transform(patch_tensors)
-        return slide, patch_tensors
+        """
+        print(f"Prefecting patch features")
+        patch_features = {}
+
+        slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in self.wsi_paths.keys()]
+
+        for idx, slide_id in enumerate(slide_ids):
+            print(f"Slide {idx + 1}/{len(slide_ids)}")
+            _, patch_features[slide_id] = self.load_patch_features(slide_id)
+        return patch_features
+
+    # def load_patches(self, slide_id):
+    #     """
+    #     Loads patches for a given slide_id encoded using a pretrained ResNet50 model
+    #     Args:
+    #         slide_id:
+    #
+    #     Returns:
+    #     """
+    #
+    #     # create a tensor of zeros - each sample requiring less patches will be zero-padded
+    #     patch_tensors = torch.zeros(self.max_patches, self.encoding_dims)
+    #     # patch_tensors = torch.zeros(self.patch_coords[slide_id].shape[0], 3, 256, 256)
+    #     slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
+    #
+    #     # if self.prep_path.joinpath("patch_features", f"{slide_id}.pt").exists():
+    #     #     patch_features = torch.load(self.prep_path.joinpath("patch_features", f"{slide_id}.pt"))
+    #     #     return slide, patch_features
+    #
+    #     for idx, coord in enumerate(self.patch_coords[slide_id]):
+    #         print(f"Loading patch {idx+1} of {self.patch_coords[slide_id].shape[0]}")
+    #         x, y = coord
+    #         region_transform = transforms.Compose([
+    #             transforms.Lambda(lambda image: image.convert("RGB")), # need to convert to RGB for ResNet encoding
+    #             transforms.ToTensor(),
+    #             transforms.Resize((224, 224)), # resize in line with ResNet50
+    #             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet normalisation
+    #             ])
+    #         patch_size = self.config["data.patch_size"]
+    #         patch_region = region_transform(slide.read_region((x, y), level=self.level, size=(patch_size, patch_size)))
+    #         patch_region = patch_region.unsqueeze(0)
+    #         patch_features = self.patch_encoder(patch_region)
+    #         patch_tensors[idx] = patch_features.squeeze()
+    #
+    #     return slide, patch_tensors
 
 
 class RearrangeTransform(object):
