@@ -5,6 +5,7 @@ from pathlib import Path
 from openslide import OpenSlide
 import pandas as pd
 import torch
+from tqdm import tqdm
 import os
 import h5py
 import torchvision.models as models
@@ -110,21 +111,24 @@ def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", s
           f"--patch_size {int(conf.data.patch_size)} --patch_level {int(level)} --seg --patch --stitch")
 
     if step == "features":
-        slide_ids = [x.stem for x in raw_path.glob("*.svs")]
-
+        slide_ids = [x.rstrip(".svs") for x in os.listdir(raw_path)]
         # load patch coords
         coords = {}
         for slide_id in slide_ids:
             patch_path = prep_path.joinpath(f"patches/{slide_id}.h5")
-            print(patch_path)
-            h5_file = h5py.File(patch_path, "r")
-            patch_coords = h5_file["coords"][:]
-            coords[slide_id] = patch_coords
+            try:
+                h5_file = h5py.File(patch_path, "r")
+                patch_coords = h5_file["coords"][:]
+                coords[slide_id] = patch_coords
+            except FileNotFoundError as e:
+                print(f"No patches available for file {patch_path}")
+                pass
         max_patches = max([coords.get(key).shape[0] for key in coords.keys()])
         print(f"Max patches: {max_patches}")
 
         # load in resnet50 model
-        patch_encoder = models.resnet50(pretrained=True)
+        # patch_encoder = models.resnet50(pretrained=True)
+        patch_encoder = models.resnet50(weights=models.resnet.ResNet50_Weights.IMAGENET1K_V2)
         patch_encoder = torch.nn.Sequential(*(list(patch_encoder.children())[:-1])) # remove classifier head
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         patch_encoder.to(device)
@@ -133,12 +137,13 @@ def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", s
         patch_tensors = torch.zeros(max_patches, 2048)
         num_slides = len(slide_ids)
         # extract features
-        for slide_count, slide_id in enumerate(slide_ids):
+        for slide_count, slide_id in enumerate(coords.keys()):
             slide = OpenSlide(raw_path.joinpath(f"{slide_id}.svs"))
+            print(f"slide {slide_count+1}/{num_slides}")
 
-            for idx, coord in enumerate(coords[slide_id]):
-                print(f"{dataset.upper()} Level {level}: Processing patch {idx} of {len(coords[slide_id])} for "
-                      f"slide {slide_count+1}/{num_slides}")
+            for idx, coord in enumerate(tqdm(coords[slide_id])):
+                # print(f"{dataset.upper()} Level {level}: Processing patch {idx} of {len(coords[slide_id])} for "
+                #       f"slide {slide_count+1}/{num_slides}")
                 x, y = coord
                 region_transform = transforms.Compose([
                 transforms.Lambda(lambda image: image.convert("RGB")), # need to convert to RGB for ResNet encoding
@@ -147,10 +152,10 @@ def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", s
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet normalisation
                 ])
                 patch_region = region_transform(slide.read_region((x, y), level=int(level), size=(256, 256)))
-                patch_region.to(device)
+                patch_region = patch_region.to(device)
                 patch_region = patch_region.unsqueeze(0)
                 patch_features = patch_encoder(patch_region)
-                patch_tensors[idx] = patch_features.squeeze().cpu()
+                patch_tensors[idx] = patch_features.cpu().detach().squeeze()
 
             # save features
             feat_path = prep_path.joinpath("patch_features")
