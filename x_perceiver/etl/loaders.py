@@ -109,8 +109,6 @@ class TCGADataset(Dataset):
             if index not in self.patch_cache:
                 slide, slide_tensor = self.load_patch_features(slide_id)
                 self.patch_cache[index] = slide_tensor
-                print(self.patch_cache.keys())
-                print(len(self.patch_cache))
             else:
                 # print("cache hit")
                 slide_tensor = self.patch_cache[index]
