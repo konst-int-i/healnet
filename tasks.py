@@ -78,7 +78,7 @@ def flatten(c, dataset: str, config: str):
     c.run(f"find {download_dir} ! -name '*.svs' -delete")
 
 @task
-def preprocess(c, dataset: str, config: str, level: int, step:str= "patch"):
+def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", step:str= "patch"):
     """
     Preprocesses WSI images for downstream tasks.
     Args:
