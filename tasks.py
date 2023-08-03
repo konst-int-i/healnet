@@ -1,8 +1,13 @@
 from invoke import task
 from x_perceiver.utils import Config
+from torchvision import transforms
 from pathlib import Path
+from openslide import OpenSlide
 import pandas as pd
+import torch
 import os
+import h5py
+import torchvision.models as models
 
 
 @task
@@ -90,10 +95,10 @@ def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", s
 
     """
     conf = Config(config).read()
-    raw_dir = Path(conf.tcga_path).joinpath(f"wsi/{dataset}")
-    preprocessed_dir = Path(conf.tcga_path).joinpath(f"wsi/{dataset}_preprocessed_level{level}")
+    raw_path = Path(conf.tcga_path).joinpath(f"wsi/{dataset}")
+    prep_path = Path(conf.tcga_path).joinpath(f"wsi/{dataset}_preprocessed_level{level}")
 
-    valid_steps = ["patch", "extract_features"]
+    valid_steps = ["patch", "features"]
     assert step in valid_steps, f"Invalid step arg, must be one of {valid_steps}"
 
     # clone CLAM repo if doesn't exist
@@ -101,13 +106,57 @@ def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", s
         c.run("git clone git@github.com:mahmoodlab/CLAM.git")
 
     if step == "patch":
-        c.run(f"python CLAM/create_patches_fp.py --source {raw_dir} --save_dir {preprocessed_dir} "
+        c.run(f"python CLAM/create_patches_fp.py --source {raw_path} --save_dir {prep_path} "
           f"--patch_size {int(conf.data.patch_size)} --patch_level {int(level)} --seg --patch --stitch")
 
-    if step == "extract_features":
-        # load in resnet50 model
-        pass
+    if step == "features":
+        slide_ids = [x.stem for x in raw_path.glob("*.svs")]
 
-    # run feature extraction
+        # load patch coords
+        coords = {}
+        for slide_id in slide_ids:
+            patch_path = prep_path.joinpath(f"patches/{slide_id}.h5")
+            print(patch_path)
+            h5_file = h5py.File(patch_path, "r")
+            patch_coords = h5_file["coords"][:]
+            coords[slide_id] = patch_coords
+        max_patches = max([coords.get(key).shape[0] for key in coords.keys()])
+        print(f"Max patches: {max_patches}")
+
+        # load in resnet50 model
+        patch_encoder = models.resnet50(pretrained=True)
+        patch_encoder = torch.nn.Sequential(*(list(patch_encoder.children())[:-1])) # remove classifier head
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        patch_encoder.to(device)
+        patch_encoder.eval()
+
+        patch_tensors = torch.zeros(max_patches, 2048)
+        num_slides = len(slide_ids)
+        # extract features
+        for slide_count, slide_id in enumerate(slide_ids):
+            slide = OpenSlide(raw_path.joinpath(f"{slide_id}.svs"))
+
+            for idx, coord in enumerate(coords[slide_id]):
+                print(f"{dataset.upper()} Level {level}: Processing patch {idx} of {len(coords[slide_id])} for "
+                      f"slide {slide_count+1}/{num_slides}")
+                x, y = coord
+                region_transform = transforms.Compose([
+                transforms.Lambda(lambda image: image.convert("RGB")), # need to convert to RGB for ResNet encoding
+                transforms.ToTensor(),
+                transforms.Resize((224, 224)), # resize in line with ResNet50
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet normalisation
+                ])
+                patch_region = region_transform(slide.read_region((x, y), level=int(level), size=(256, 256)))
+                patch_region.to(device)
+                patch_region = patch_region.unsqueeze(0)
+                patch_features = patch_encoder(patch_region)
+                patch_tensors[idx] = patch_features.squeeze().cpu()
+
+            # save features
+            feat_path = prep_path.joinpath("patch_features")
+            if not feat_path.exists():
+                feat_path.mkdir(parents=False)
+            save_path = feat_path.joinpath(f"{slide_id}.pt")
+            torch.save(patch_tensors, save_path)
 
 
