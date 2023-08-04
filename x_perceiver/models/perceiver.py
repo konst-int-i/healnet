@@ -4,6 +4,7 @@ Based on lucidrains implementation: https://github.com/lucidrains/perceiver-pyto
 
 from math import pi, log
 from functools import wraps
+from typing import *
 
 import torch
 from torch import nn, einsum
@@ -277,4 +278,110 @@ class Perceiver(nn.Module):
         # to logits
 
         return self.to_logits(x)
+
+
+
+
+class MMPerceiver(nn.Module):
+    def __init__(
+        self,
+        *,
+        num_freq_bands: int,
+        depth: int,
+        modalities: int,
+        max_freq: float,
+        input_channels: List,
+        input_axes: List,
+        num_latents: int = 512,
+        latent_dim: int = 512,
+        cross_heads: int = 1,
+        latent_heads: int = 8,
+        cross_dim_head: int = 64,
+        latent_dim_head: int = 64,
+        num_classes: int = 1000,
+        attn_dropout: float = 0.,
+        ff_dropout: float = 0.,
+        weight_tie_layers: bool = False,
+        fourier_encode_data: bool = True,
+        self_per_cross_attn: int = 1,
+        final_classifier_head: bool = True
+    ):
+        super().__init__()
+        assert len(input_channels) == len(input_axes), 'input channels and input axis must be of the same length'
+        assert len(input_axes) == modalities, 'input axis must be of the same length as the number of modalities'
+
+        self.input_axes = input_axes
+        self.input_channels=input_channels
+        self.max_freq = max_freq
+        self.num_freq_bands = num_freq_bands
+
+
+        self.fourier_encode_data = fourier_encode_data
+
+        # get fourier channels and input dims for each modality
+        fourier_channels = []
+        input_dims = []
+        for axis in input_axes:
+            fourier_channels.append((axis * ((num_freq_bands * 2) + 1)) if fourier_encode_data else 0)
+        for f_channels, i_channels in zip(fourier_channels, input_channels):
+            input_dims.append(f_channels + i_channels)
+
+        # initialise shared latent bottleneck
+        self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
+
+        # modality-specific attention layers
+        cross_attn_funcs = []
+        # get_cross_attn = []
+        for i in range(modalities):
+            get_cross_attention = lambda: PreNorm(latent_dim, Attention(latent_dim, input_dims[i], heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dims[i])
+            cross_attn_funcs.append(get_cross_attention)
+
+        cross_attn_funcs = list(map(cache_fn, (*cross_attn_funcs,)))
+
+        get_latent_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, heads = latent_heads, dim_head = latent_dim_head, dropout = attn_dropout))
+        get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
+        get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
+
+        get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_ff, get_latent_attn, get_latent_ff))
+
+        self.layers = nn.ModuleList([])
+
+        for i in range(depth):
+            should_cache = i > 0 and weight_tie_layers
+            cache_args = {'_cache': should_cache}
+
+            self_attns = nn.ModuleList([])
+
+            for block_ind in range(self_per_cross_attn):
+                self_attns.append(nn.ModuleList([
+                    get_latent_attn(**cache_args, key = block_ind),
+                    get_latent_ff(**cache_args, key = block_ind)
+                ]))
+
+            for i in range(modalities):
+                self.layers.append(nn.ModuleList([
+                    # *cross_attn_funcs[i](**cache_args),
+                    cross_attn_funcs[i](**cache_args),
+                    get_cross_ff(**cache_args),
+                    self_attns
+                ]))
+
+        self.to_logits = nn.Sequential(
+            Reduce('b n d -> b d', 'mean'),
+            nn.LayerNorm(latent_dim),
+            nn.Linear(latent_dim, num_classes)
+        ) if final_classifier_head else nn.Identity()
+
+
+
+
+
+
+
+
+
+
+
+
+
 
