@@ -405,7 +405,9 @@ class Pipeline:
                 y_disc = y_disc.to(self.device) # discretized survival time bucket
 
                 if batch == 0 and epoch == 0: # print model summary
+                    print(f"Modality shapes: ")
                     [print(feat.shape) for feat in features]
+                    print(f"Modality dtypes:")
                     [print(feat.dtype) for feat in features]
 
                 optimizer.zero_grad()
