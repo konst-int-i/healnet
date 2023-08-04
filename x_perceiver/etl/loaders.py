@@ -116,10 +116,6 @@ class TCGADataset(Dataset):
             return slide_tensor, censorship, event_time, y_disc
         else: # both
             pass
-            # slide_id = self.omic_df.iloc[index]["slide_id"]
-            # slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
-            # mol_tensor = torch.from_numpy(self.features.iloc[index].values)
-            # return (mol_tensor, slide_tensor), censorship, event_time, y_disc
 
     def get_resize_dims(self, level: int, patch_height: int = 128, patch_width: int = 128, override=False):
         if override is False:

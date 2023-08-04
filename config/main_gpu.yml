@@ -43,8 +43,8 @@ train_loop:
 optimizer:
   max_lr: 0.005
   lr: 0.002
-  momentum: 0.95
-  weight_decay: 0.0001 # or None
+  momentum: 0.92
+  weight_decay: 0.00026 # or None
 
 
 model_params:
@@ -69,12 +69,12 @@ model_params:
   # SLIDES
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  num_freq_bands: 2
-  depth: 3
-  max_freq: 8.
-  num_latents: 4
-  latent_dim: 32
-  cross_dim_head: 128
+  num_freq_bands: 5
+  depth: 6
+  max_freq: 2.
+  num_latents: 120
+  latent_dim: 100
+  cross_dim_head: 80
   latent_dim_head: 128
   cross_heads: 1
   latent_heads: 8
