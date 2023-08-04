@@ -330,7 +330,6 @@ class MMPerceiver(nn.Module):
             input_dims.append(f_channels + i_channels)
 
 
-        print(input_dims)
         # initialise shared latent bottleneck
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
 
@@ -365,8 +364,8 @@ class MMPerceiver(nn.Module):
                 cross_attn_layers.append(cross_attn_funcs[j](**cache_args))
                 cross_attn_layers.append(get_cross_ff(**cache_args))
 
-            print(f"Layer {i+1} module list: ")
-            print(nn.ModuleList([*cross_attn_layers, self_attns]))
+            # print(f"Layer {i+1} module list: ")
+            # print(nn.ModuleList([*cross_attn_layers, self_attns]))
 
             self.layers.append(nn.ModuleList(
                 [*cross_attn_layers, self_attns])
