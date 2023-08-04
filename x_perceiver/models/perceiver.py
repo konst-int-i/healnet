@@ -240,6 +240,9 @@ class Perceiver(nn.Module):
         return_embeddings = False
     ):
         b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
+        print(data.shape)
+        print(axis)
+        print(self.input_axis)
         assert len(axis) == self.input_axis, f'input data must have the right number of axis' \
                                              f'len(axis): {len(axis)}, input_axis: {self.input_axis}'
 
@@ -332,8 +335,8 @@ class MMPerceiver(nn.Module):
         # modality-specific attention layers
         cross_attn_funcs = []
         # get_cross_attn = []
-        for i in range(modalities):
-            get_cross_attention = lambda: PreNorm(latent_dim, Attention(latent_dim, input_dims[i], heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dims[i])
+        for m in range(modalities):
+            get_cross_attention = lambda: PreNorm(latent_dim, Attention(latent_dim, input_dims[m], heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dims[m])
             cross_attn_funcs.append(get_cross_attention)
 
         cross_attn_funcs = list(map(cache_fn, (*cross_attn_funcs,)))
@@ -345,6 +348,7 @@ class MMPerceiver(nn.Module):
         get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_ff, get_latent_attn, get_latent_ff))
 
         self.layers = nn.ModuleList([])
+        print(cross_attn_funcs)
 
         for i in range(depth):
             should_cache = i > 0 and weight_tie_layers
@@ -353,14 +357,12 @@ class MMPerceiver(nn.Module):
             self_attns = nn.ModuleList([])
 
             for block_ind in range(self_per_cross_attn):
-                self_attns.append(nn.ModuleList([
-                    get_latent_attn(**cache_args, key = block_ind),
-                    get_latent_ff(**cache_args, key = block_ind)
-                ]))
+                self_attns.append(get_latent_attn(**cache_args, key = block_ind))
+                self_attns.append(get_latent_ff(**cache_args, key = block_ind))
 
-            cross_list = [(cross_attn_funcs[i](**cache_args),
+            cross_list = [(cross_attn_funcs[j](**cache_args),
                            get_cross_ff(**cache_args))
-                          for i in range(modalities)]
+                          for j in range(modalities)]
             cross_list = [item for tup in cross_list for item in tup]
 
 
@@ -385,7 +387,7 @@ class MMPerceiver(nn.Module):
             data = tensors[i]
             # sanity checks
             b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
-            assert len(axis) == len(self.input_axes[i]), (f'input data for modality {i+1} must hav'
+            assert len(axis) == self.input_axes[i], (f'input data for modality {i+1} must hav'
                                                           f' the same number of axis as the input axis parameter')
 
             # fourier encode for each modality
@@ -404,13 +406,14 @@ class MMPerceiver(nn.Module):
         x = repeat(self.latents, 'n d -> b n d', b = b) # note: batch dim should be identical across modalities
 
         for layer in self.layers:
+            # print(layer)
             for i in range(self.modalities):
-                cross_attn= self.layers[i*2]
-                cross_ff = self.layers[(i*2)+1]
+                cross_attn= layer[i*2]
+                cross_ff = layer[(i*2)+1]
                 x = cross_attn(x, context = tensors[i], mask = mask) + x
                 x =  cross_ff(x) + x
 
-            self_attn, self_ff = self.layers[-1]
+            self_attn, self_ff = layer[-1]
 
             x = self_attn(x) + x
             x = self_ff(x) + x
