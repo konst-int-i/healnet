@@ -314,7 +314,7 @@ class MMPerceiver(nn.Module):
         self.input_channels=input_channels
         self.max_freq = max_freq
         self.num_freq_bands = num_freq_bands
-
+        self.modalities = modalities
 
         self.fourier_encode_data = fourier_encode_data
 
@@ -358,19 +358,72 @@ class MMPerceiver(nn.Module):
                     get_latent_ff(**cache_args, key = block_ind)
                 ]))
 
-            for i in range(modalities):
-                self.layers.append(nn.ModuleList([
-                    # *cross_attn_funcs[i](**cache_args),
-                    cross_attn_funcs[i](**cache_args),
-                    get_cross_ff(**cache_args),
-                    self_attns
-                ]))
+            cross_list = [(cross_attn_funcs[i](**cache_args),
+                           get_cross_ff(**cache_args))
+                          for i in range(modalities)]
+            cross_list = [item for tup in cross_list for item in tup]
+
+
+            self.layers.append(nn.ModuleList(
+                [*cross_list, self_attns])
+            )
 
         self.to_logits = nn.Sequential(
             Reduce('b n d -> b d', 'mean'),
             nn.LayerNorm(latent_dim),
             nn.Linear(latent_dim, num_classes)
         ) if final_classifier_head else nn.Identity()
+
+
+    def forward(self,
+                tensors: List[torch.Tensor],
+                mask: Optional[torch.Tensor] = None,
+                return_embeddings: bool = False
+                ):
+
+        for i in range(self.modalities):
+            data = tensors[i]
+            # sanity checks
+            b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
+            assert len(axis) == len(self.input_axes[i]), (f'input data for modality {i+1} must hav'
+                                                          f' the same number of axis as the input axis parameter')
+
+            # fourier encode for each modality
+            if self.fourier_encode_data:
+                pos = torch.linspace(0, 1, axis[0], device = device, dtype = dtype)
+                enc_pos = fourier_encode(pos, self.max_freq, self.num_freq_bands)
+                enc_pos = rearrange(enc_pos, 'n d -> () n d')
+                enc_pos = repeat(enc_pos, '() n d -> b n d', b = b)
+                data = torch.cat((data, enc_pos), dim = -1)
+
+            # concat and flatten axis for each modality
+            data = rearrange(data, 'b ... d -> b (...) d')
+            tensors[i] = data
+
+
+        x = repeat(self.latents, 'n d -> b n d', b = b) # note: batch dim should be identical across modalities
+
+        for layer in self.layers:
+            for i in range(self.modalities):
+                cross_attn= self.layers[i*2]
+                cross_ff = self.layers[(i*2)+1]
+                x = cross_attn(x, context = tensors[i], mask = mask) + x
+                x =  cross_ff(x) + x
+
+            self_attn, self_ff = self.layers[-1]
+
+            x = self_attn(x) + x
+            x = self_ff(x) + x
+
+        if return_embeddings:
+            return x
+
+        return self.to_logits(x)
+
+
+
+
+
 
 
 
