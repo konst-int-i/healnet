@@ -3,19 +3,24 @@ sys.path.append("/home/kh701/pycharm/x-perceiver/")
 
 import torch
 import torch.nn as nn
+from torch.autograd.profiler import profile
+from sklearn.model_selection import KFold
 import os
+import multiprocessing
 import argparse
 from argparse import Namespace
 import yaml
 from tqdm import tqdm
 from x_perceiver.train import majority_classifier_acc
-from x_perceiver.models import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss
+from x_perceiver.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
+from x_perceiver.models.baselines import RegularizedFCNN
 import numpy as np
 from torchsummary import summary
-from sksurv.metrics import concordance_index_censored
-from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix
+import torch_optimizer as t_optim
+from sksurv.metrics import concordance_index_censored, concordance_index_ipcw
+from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score
 from torch import optim
-from x_perceiver.models.perceiver import Perceiver
+from x_perceiver.models import Perceiver, FCNN
 import pandas as pd
 from box import Box
 from torch.utils.data import Dataset, DataLoader
@@ -37,7 +42,6 @@ class Pipeline:
         self.wandb_name = wandb_name
         self.output_dims = int(self.config["model_params.output_dims"])
         self.sources = self.config.sources
-        self.n_classes = self.config["clf.n_classes"]
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.device == "cuda":
@@ -48,12 +52,13 @@ class Pipeline:
         torch.manual_seed(self.config.seed)
         np.random.seed(self.config.seed)
 
+        # set up wandb logging
         self.wandb_setup()
 
     def wandb_setup(self) -> None:
 
         if args.hyperparameter_sweep:
-            with open("config/sweep.yaml", "r") as f:
+            with open(self.args.sweep_config, "r") as f:
                 sweep_config = yaml.safe_load(f)
 
             sweep_id = wandb.sweep(sweep=sweep_config, project="x-perceiver")
@@ -77,11 +82,18 @@ class Pipeline:
         assert self.config["survival.loss"] in valid_survival_losses, f"Invalid survival loss specified. " \
                                                                    f"Valid losses are {valid_survival_losses}"
 
+        valid_datasets = ["blca", "brca"]
+        assert self.config.dataset in valid_datasets, f"Invalid dataset specified. Valid datasets are {valid_datasets}"
+
         valid_tasks = ["survival", "classification"]
         assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
 
-        valid_models = ["perceiver", "custom"]
+        valid_models = ["perceiver", "custom", "fcnn"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
+
+        valid_class_weights = ["inverse", "inverse_root", None]
+        assert self.config["model_params.class_weight"] in valid_class_weights, f"Invalid class weight specified. " \
+                                                                                f"Valid weights are {valid_class_weights}"
 
         return None
 
@@ -90,16 +102,12 @@ class Pipeline:
 
         # Initialise wandb run (do here for sweep)
         if self.args.hyperparameter_sweep:
-            wandb.init(project="x-perceiver", name=None) # init sweep run
             # update config with sweep config
+            wandb.init(project="x-perceiver", name=None) # init sweep run
             for key, value in wandb.config.items():
                 if key in self.config.keys():
                     self.config[key] = value
 
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        self.log_path = Path(self.config.log_path).joinpath(timestamp)
-        self.log_path.mkdir(parents=True, exist_ok=True)
-        print(f"Logging to {self.log_path}")
 
         train_data, test_data = self.load_data()
         model = self.make_model(train_data)
@@ -113,12 +121,12 @@ class Pipeline:
         wandb.finish()
 
     def load_data(self):
-        data = TCGADataset("blca",
+        data = TCGADataset(self.config["dataset"],
                            self.config,
-                           level=3,
+                           level=int(self.config["data.wsi_level"]),
                            survival_analysis=True,
                            sources=self.sources,
-                           n_bins=self.output_dims if self.config.task == "survival" else self.n_classes,
+                           n_bins=self.output_dims,
                            )
 
         train_size = int(0.8 * len(data))
@@ -127,30 +135,46 @@ class Pipeline:
         train, test = torch.utils.data.random_split(data, [train_size, test_size])
 
         # calculate class weights for imbalanced datasets (if model_params.class_weights is True)
-        weight_sampler = self._calc_class_weights(train)
+        # if self.config["model_params.class_weights"] is not None:
+        # calculate class weights
+        if self.config["model_params.class_weights"] == None:
+            self.class_weights = None
+        else:
+            self.class_weights = torch.Tensor(self._calc_class_weights(train)).float().to(self.device)
+
+        # self.class_weights = self._calc_class_weights(train)
+
 
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
-                                shuffle=False, num_workers=os.cpu_count(),
-                                pin_memory=True, multiprocessing_context="spawn", sampler=weight_sampler)
+                                shuffle=True,
+                                num_workers=multiprocessing.cpu_count(),
+                                pin_memory=True,
+                                multiprocessing_context=MP_CONTEXT,
+                                prefetch_factor=2
+                                )
 
-        test_data = DataLoader(test, batch_size=self.config["train_loop.batch_size"], shuffle=False, num_workers=os.cpu_count(),
-                                pin_memory=True, multiprocessing_context="spawn")
+        test_data = DataLoader(test,
+                               batch_size=self.config["train_loop.batch_size"],
+                               shuffle=False,
+                               num_workers=multiprocessing.cpu_count(),
+                               pin_memory=True,
+                               multiprocessing_context=MP_CONTEXT,
+                               prefetch_factor=2)
         return train_data, test_data
 
     def _calc_class_weights(self, train):
 
-        if self.config["model_params.class_weights"]:
+        if self.config["model_params.class_weights"] in ["inverse", "inverse_root"]:
             train_targets = np.array(train.dataset.y_disc)[train.indices]
             _, counts = np.unique(train_targets, return_counts=True)
-            self.class_weight = 1. / counts
-            sample_weights = np.array([self.class_weight[t] for t in train_targets])
-            sample_weights = torch.from_numpy(sample_weights)
-            sampler = torch.utils.data.WeightedRandomSampler(weights=sample_weights.type('torch.DoubleTensor'),
-                                                                 num_samples=len(sample_weights))
-            return sampler
+            if self.config["model_params.class_weights"] == "inverse":
+                class_weights = 1. / counts
+            elif self.config["model_params.class_weights"] == "inverse_root":
+                class_weights = 1. / np.sqrt(counts)
         else:
-            return None
+            class_weights = None
+        return class_weights
 
     def make_model(self, train_data: DataLoader):
         """
@@ -161,58 +185,60 @@ class Pipeline:
         Returns:
             nn.Module: model used for training
         """
+        feat, _, _, _ = next(iter(train_data))
         if self.config.model == "perceiver":
-            if self.sources == ["omic"]:
-                model = Perceiver(
-                    input_channels=1,
-                    input_axis=2, # second axis (b n_feats c)
-                    num_freq_bands=self.config["model_params.num_freq_bands"],
-                    depth=self.config["model_params.depth"],
-                    max_freq=self.config["model_params.max_freq"],
-                    num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
-                    num_latents = self.config["model_params.num_latents"],
-                    latent_dim = self.config["model_params.latent_dim"],
-                    cross_dim_head = self.config["model_params.cross_dim_head"],
-                    latent_dim_head = self.config["model_params.latent_dim_head"],
-                    cross_heads = self.config["model_params.cross_heads"],
-                    latent_heads = self.config["model_params.latent_heads"],
-                    attn_dropout = self.config["model_params.attn_dropout"],  # non-default
-                    ff_dropout = self.config["model_params.ff_dropout"],  # non-default
-                    weight_tie_layers = False,
-                    fourier_encode_data = self.config["model_params.fourier_encode_data"],
-                    self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
-                    final_classifier_head = True
-                )
-                model.float()
-                feat, _, _, _ = next(iter(train_data))
-                model.to(self.device)
-                summary(model, input_size=feat.shape[1:])
-            elif self.sources == ["slides"]:
-                model = Perceiver(
-                    input_channels=3, # RGB, dropped alpha channel
-                    input_axis=2,
-                    num_freq_bands=6,
-                    depth=1,  # number of cross-attention iterations
-                    max_freq=10.,
-                    num_classes=self.output_dims,
-                    num_latents=256,
-                    latent_dim=256,  # latent dim of transformer
-                    cross_dim_head=32,
-                    latent_dim_head=32,
-                    attn_dropout=0.5,
-                    ff_dropout=0.5,
-                    cross_heads=1,
-                    final_classifier_head=True
-                )
-                model.to(self.device) # need to move to GPU to get summary
-                feat, _, _, _ = next(iter(train_data))
-                summary(model, input_size=feat.shape[1:]) # omit batch dim
-        elif self.config.model == "custom":
+            model = Perceiver(
+                input_channels=feat.shape[2], # number of features as input channels
+                input_axis=1, # second axis (b n_feats c)
+                num_freq_bands=self.config["model_params.num_freq_bands"],
+                depth=self.config["model_params.depth"],
+                max_freq=self.config["model_params.max_freq"],
+                num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
+                num_latents = self.config["model_params.num_latents"],
+                latent_dim = self.config["model_params.latent_dim"],
+                cross_dim_head = self.config["model_params.cross_dim_head"],
+                latent_dim_head = self.config["model_params.latent_dim_head"],
+                cross_heads = self.config["model_params.cross_heads"],
+                latent_heads = self.config["model_params.latent_heads"],
+                attn_dropout = self.config["model_params.attn_dropout"],  # non-default
+                ff_dropout = self.config["model_params.ff_dropout"],  # non-default
+                weight_tie_layers = self.config["model_params.weight_tie_layers"],
+                fourier_encode_data = self.config["model_params.fourier_encode_data"],
+                self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
+                final_classifier_head = True
+            )
+            model.float()
+            model.to(self.device)
+            summary(model, input_size=feat.shape[1:])
+            # elif self.sources == ["slides"]:
+            #     model = Perceiver(
+            #         input_channels=feat.shape[2], # number of patches as input channels
+            #         input_axis=1, # feature axis
+            #
+            #         # num_freq_bands=6,
+            #         # max_freq=10.,
+            #         # depth=1,  # number of cross-attention iterations
+            #         # num_classes=self.output_dims,
+            #         # num_latents=4,
+            #         # latent_dim=4,  # latent dim of transformer
+            #         # cross_dim_head=16,
+            #         # latent_dim_head=16,
+            #         # attn_dropout=0.5,
+            #         # ff_dropout=0.5,
+            #         # weight_tie_layers=False,
+            #         # cross_heads=1,
+            #         # final_classifier_head=True
+            #     )
+            #     model.to(self.device) # need to move to GPU to get summary
+            #     feat, _, _, _ = next(iter(train_data))
+            #     summary(model, input_size=feat.shape[1:]) # omit batch dim
+        elif self.config.model == "fcnn":
+            # feat, _, _, _ = next(iter(train_data))
+            # feat = feat.squeeze()
             # modality-specific models
             if self.sources == ["omic"]:
-                # TODO: implement custom model
-                model=None
-                pass
+                model = RegularizedFCNN(output_dim=self.output_dims)
+                model.to(self.device)
             elif self.sources == ["slides"]:
                 model = None
                 pass
@@ -244,14 +270,15 @@ class Pipeline:
                                                   max_lr=self.config["optimizer.max_lr"],
                                                   epochs=self.config["train_loop.epochs"],
                                                   steps_per_epoch=len(train_data))
-        loss_weight = torch.tensor(self.class_weight).float().to(self.device) if self.config["model_params.class_weights"] else None
 
-        criterion = nn.CrossEntropyLoss(weight=loss_weight)
+
+        criterion = nn.CrossEntropyLoss(weight=self.class_weights)
 
         # use survival loss for survival analysis which accounts for censored data
         model.train()
 
         majority_train_acc = np.round(majority_classifier_acc(train_data.dataset.dataset.y_disc), 5)
+
         for epoch in range(self.config["train_loop.epochs"]):
             print(f"Epoch {epoch}")
             running_loss = 0.0
@@ -260,7 +287,9 @@ class Pipeline:
             for batch, (features, _, _, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
                 labels.append(y_disc.tolist())
-                features, y_disc = features.to(self.device), y_disc.to(self.device)
+                y_disc = y_disc.to(self.device)
+                features = features.to(self.device)
+                # features, y_disc = features.to(self.device), y_disc.to(self.device)
                 if batch == 0 and epoch == 0: # print model summary
                     print(features.shape)
                     print(features.dtype)
@@ -268,6 +297,8 @@ class Pipeline:
                 # forward + backward + optimize
                 outputs = model.forward(features)
                 loss = criterion(outputs, y_disc)
+                # temporary
+                # loss += model.l1_regularization() + model.l2_regularization()
                 loss.backward()
                 optimizer.step()
                 scheduler.step()
@@ -295,19 +326,15 @@ class Pipeline:
                        }, step=epoch)
             wandb.log({"train_conf_matrix": wandb.plot.confusion_matrix(y_true=labels, preds=predictions)}, step=epoch)
             running_loss = 0.0
-            # running_acc = 0.0
 
             if epoch % self.config["train_loop.eval_interval"] == 0:
                 # print("**************************")
                 # print(f"EPOCH {epoch} EVALUATION")
                 # print("**************************")
-                self.evaluate_clf_epoch(model, test_data, criterion)
+                self.evaluate_clf_epoch(model, test_data, criterion, epoch)
 
-            # checkpoint model after epoch
-            if epoch % self.config["train_loop.checkpoint_interval"] == 0:
-                torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
 
-    def evaluate_clf_epoch(self, model: nn.Module, test_data: DataLoader, criterion: nn.Module):
+    def evaluate_clf_epoch(self, model: nn.Module, test_data: DataLoader, criterion: nn.Module, epoch: int):
         model.eval()
         majority_val_acc = majority_classifier_acc(y_true=test_data.dataset.dataset.y_disc)
         val_loss = 0.0
@@ -338,6 +365,7 @@ class Pipeline:
                    "val_acc": val_acc,
                    "val_f1": val_f1,
                    })
+        wandb.log({"val_conf_matrix": wandb.plot.confusion_matrix(y_true=labels, preds=predictions)}, step=epoch)
         model.train()
 
 
@@ -360,9 +388,7 @@ class Pipeline:
 
         """
         print(f"Training surivival model")
-        # model.to(self.device)
-        optimizer = optim.SGD(model.parameters(),
-                              lr=self.config["optimizer.lr"], momentum=self.config["optimizer.momentum"])
+        optimizer = t_optim.lamb.Lamb(model.parameters(), lr=self.config["optimizer.lr"])
         # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
                                                   max_lr=self.config["optimizer.max_lr"],
@@ -370,14 +396,13 @@ class Pipeline:
                                                   steps_per_epoch=len(train_data))
 
         model.train()
-        eval_interval = 10
-
         for epoch in range(self.config["train_loop.epochs"]):
             print(f"Epoch {epoch}")
             risk_scores = []
             censorships = []
             event_times = []
-            train_loss_surv, train_loss = 0.0, 0.0
+            # train_loss_surv, train_loss = 0.0, 0.0
+            train_loss = 0.0
 
             for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
@@ -392,13 +417,21 @@ class Pipeline:
 
                 optimizer.zero_grad()
                 # forward + backward + optimize
-                y_hat = model.forward(features)  # model predictions of survival time bucket (shape is n_bins)
-                hazards = torch.sigmoid(y_hat)  # sigmoid to get hazards from predictions for surv analysis
+                logits = model.forward(features)
+                y_hat = torch.topk(logits, k=1, dim=1)[1]
+                hazards = torch.sigmoid(logits)  # sigmoid to get hazards from predictions for surv analysis
                 survival = torch.cumprod(1-hazards, dim=1)  # as per paper, survival = cumprod(1-hazards)
                 risk = -torch.sum(survival, dim=1).detach().cpu().numpy()  # risk = -sum(survival)
+
+                # print(f"{logits=}")
+                # print(f"{y_hat=}")
+                # print(f"{hazards=}")
+                # print(f"{survival=}")
+                # print(f"{risk=}")
                 if self.config["survival.loss"] == "nll":
-                    loss_fn = NLLSurvLoss()
-                    loss = loss_fn(h=y_hat, y=y_disc, c=censorship)
+                    # loss_fn = NLLSurvLoss()
+                    # loss = loss_fn(h=hazards, y=y_disc, c=censorship)
+                    loss = nll_loss(hazards=hazards, S=survival, Y=y_disc, c=censorship, weights=self.class_weights)
                 elif self.config["survival.loss"] == "ce_survival":
                     loss_fn = CrossEntropySurvLoss()
                     loss = loss_fn(hazards=hazards, survival=survival, y_disc=y_disc, censorship=censorship)
@@ -412,38 +445,39 @@ class Pipeline:
                 event_times.append(event_time.detach().cpu().numpy())
 
                 loss_value = loss.item()
-                train_loss_surv += loss_value
+                # train_loss_surv += loss_value
                 train_loss += loss_value + loss_reg
-
                 # backward pass
                 loss = loss / gc + loss_reg # gradient accumulation step
                 loss.backward()
+                optimizer.step()
+                optimizer.zero_grad()
 
-                if (batch + 1) % gc == 0:
-                    optimizer.step()
-                    optimizer.zero_grad()
-
-            # calculate epoch-level stats
-            train_loss_surv /= len(train_data)
+                # if (batch + 1) % gc == 0:
             train_loss /= len(train_data)
 
             risk_scores_full = np.concatenate(risk_scores)
             censorships_full = np.concatenate(censorships)
             event_times_full = np.concatenate(event_times)
 
+            # print(f"{risk_scores_full=}")
+            # print(f"{censorships_full=}")
+            # print(f"{event_times_full=}")
+
             # calculate epoch-level concordance index
-            c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
-            wandb.log({"train_loss": train_loss, "train_c_index": c_index}, step=epoch)
-            print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, c_index))
+            train_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full, tied_tol=1e-08)[0]
+            # f1 = f1_score(labels, predictions, average="macro")
+            wandb.log({"train_loss": train_loss, "train_c_index": train_c_index}, step=epoch)
+            print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, train_c_index))
 
 
-            if epoch % eval_interval == 0:
+            if epoch % self.config["train_loop.eval_interval"] == 0:
                 val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data, loss_reg=loss_reg)
                 wandb.log({"val_loss": val_loss, "val_c_index": val_c_index}, step=epoch)
 
             # checkpoint model after epoch
-            if epoch % self.config["train_loop.checkpoint_interval"] == 0:
-                torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
+            # if epoch % self.config["train_loop.checkpoint_interval"] == 0:
+            #     torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
 
     def evaluate_survival_epoch(self,
                                 epoch: int,
@@ -458,6 +492,8 @@ class Pipeline:
         risk_scores = []
         censorships = []
         event_times = []
+        predictions = []
+        labels = []
         val_loss_surv, val_loss = 0.0, 0.0
 
         for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(test_data)):
@@ -491,8 +527,13 @@ class Pipeline:
             val_loss_surv += loss_value
             val_loss += loss_value + loss_reg
 
+            predictions.append(y_hat.argmax(1).cpu().tolist())
+            labels.append(y_disc.detach().cpu().tolist())
 
         # calculate epoch-level stats
+        predictions = np.concatenate(predictions)
+        labels = np.concatenate(labels)
+
         val_loss_surv /= len(test_data)
         val_loss /= len(test_data)
 
@@ -502,8 +543,9 @@ class Pipeline:
 
         # calculate epoch-level concordance index
         c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
-
-        print(f"Epoch: {epoch}, val_loss: {val_loss}, val_c_index: {c_index}")
+        # f1 = f1_score(labels, predictions, average="macro")
+        print(f"Epoch: {epoch}, val_loss: {np.round(val_loss, 5)}, "
+              f"val_c_index: {np.round(c_index, 5)}")
 
         model.train()
         return val_loss, c_index
@@ -516,29 +558,17 @@ if __name__ == "__main__":
     # assumes execution
     parser.add_argument("--config_path", type=str, default="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml", help="Path to config file")
     parser.add_argument("--hyperparameter_sweep", type=bool, default=False, help="Whether to run wandb hyperparameter sweep")
+    parser.add_argument("--sweep_config", type=str, default="config/sweep_bayesian.yaml", help="Hyperparameter sweep configuration")
 
     # call config
     args = parser.parse_args()
-
+    MP_CONTEXT = "fork"
     # set up multiprocessing context for PyTorch
-    torch.multiprocessing.set_start_method('spawn') #  only set once for repeated experiments to work
-
+    torch.multiprocessing.set_start_method(MP_CONTEXT)
     config_path = args.config_path
-    # config_path="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml"
     config = Config(config_path).read()
     pipeline = Pipeline(
             config=config,
             args=args,
         )
     pipeline.main()
-
-
-    # losses = ["nll", "ce_survival"]
-    # for loss in losses:
-    #     print(loss)
-    #     config["train_loop"]["loss"] = loss
-    #     display_name = f"omic_30ep_{config['train_loop']['loss']}_loss"
-    #     pipeline = Pipeline(
-    #         config=config,
-    #     )
-    #     pipeline.main()

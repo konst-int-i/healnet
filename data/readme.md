@@ -26,8 +26,9 @@ Slide data:
 We download the slide data by filtering for the .svs file format via manifest. The manifest files we used are available in the data/manifests folder.
 
 Note that for every case ID, there are multiple slides, which depend on the experimental strategy (tissue slide, diagnostic slide, etc.). We have been using those in accordance with 
-the slide IDs from the molecular data files. 
+the slide IDs from the molecular data files, which correspond to the diagnostic slides on the NIH portal. 
 
+Note that the folder `data/tcga/gdc_manifests/full` contains both the tissue and diagnostic slides, while the folder `data/tcga/gdc_manifests/filtered` only contains the diagnostic slides.
 
 
 Please see the data volume for each WSI dataset in the table below.

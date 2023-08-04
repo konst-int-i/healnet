@@ -4,6 +4,9 @@ from torchvision import transforms
 from x_perceiver.utils import Config
 from openslide import OpenSlide
 import os
+from multiprocessing import Pool, cpu_count, Manager
+import torchvision.models as models
+import h5py
 import torch
 import pprint
 from functools import partial
@@ -14,6 +17,7 @@ import numpy as np
 from pathlib import Path
 from typing import *
 from box import Box
+from PIL import Image
 
 
 
@@ -50,71 +54,85 @@ class TCGADataset(Dataset):
             # get overall sample
             >>>
         """
+        self.config = config
         self.dataset = dataset
         self.sources = sources
         self.filter_omic = filter_omic
         self.survival_analysis = survival_analysis
         self.num_classes = num_classes
         self.n_bins = n_bins
+        self.subset = self.config["survival.subset"]
+        self.raw_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}")
+        prep_path = Path(config.tcga_path).joinpath(f"wsi/{dataset}_preprocessed_level{level}")
+        self.prep_path = prep_path
+        # create patch feature directory for first-time run
+        os.makedirs(self.prep_path.joinpath("patch_features"), exist_ok=True)
+        self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(prep_path.joinpath("patches"))]
+        # self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(self.raw_path)]
+
         valid_sources = ["omic", "slides"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
-        self.config = config
         self.wsi_paths: dict = self._get_slide_dict() # {slide_id: path}
-
+        self.sample_slide_id = self.slide_ids[0] + ".svs"
+        self.sample_slide = OpenSlide(self.wsi_paths[self.sample_slide_id])
         # pre-load and transform omic data
         self.omic_df = self.load_omic()
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.omic_tensor = torch.Tensor(self.features.values)
-        self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n b feat c", b=1, c=1)
-
-        # pre-load and transform slide data
+        if self.config.model == "perceiver":
+            # Perceiver model expects inputs of the shape (batch_size, sequence_length, input_dim)
+            self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n seq_length feat", seq_length=1)
 
 
         self.level = level
         self.slide_idx: dict = self._get_slide_idx() # {idx (molecular_df): slide_id}
-        self.wsi_width, self.wsi_height = self.get_resize_dims(level=self.level)
+        self.wsi_width, self.wsi_height = self.get_resize_dims(level=self.level, override=config["data.resize"])
         self.censorship = self.omic_df["censorship"].values
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
 
+        manager = Manager()
+        self.patch_cache = manager.dict()
+        print(f"Dataloader initialised for {dataset} dataset")
         self.get_info(full_detail=False)
 
     def __getitem__(self, index):
-        slide_id = self.omic_df.iloc[index]["slide_id"]
-        # # check that slide is available
         y_disc = self.y_disc[index]
         censorship = self.censorship[index]
         event_time = self.survival_months[index]
         if len(self.sources) == 1 and self.sources[0] == "omic":
             omic_tensor = self.omic_tensor[index]
-            # mol_tensor = torch.Tensor(self.features.iloc[index].values)
-            # introduce extra dim for perceiver
-            # mol_tensor = einops.repeat(mol_tensor, "feat -> b feat c", b=1, c=1)
             return omic_tensor, censorship, event_time, y_disc
-            # return mol_tensor.double(), censorship, event_time, y_disc
+
         elif len(self.sources) == 1 and self.sources[0] == "slides":
-            slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
+            slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
+            if index not in self.patch_cache:
+                slide, slide_tensor = self.load_patch_features(slide_id)
+                self.patch_cache[index] = slide_tensor
+            else:
+                # print("cache hit")
+                slide_tensor = self.patch_cache[index]
+
             return slide_tensor, censorship, event_time, y_disc
         else: # both
-            slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
-            mol_tensor = torch.from_numpy(self.features.iloc[index].values)
-            return (mol_tensor, slide_tensor), censorship, event_time, y_disc
+            pass
 
-    def get_resize_dims(self, level: int):
-        # TODO - validate which dimensions to pick for each level
-        slide_sample = list(self.slide_idx.values())[0]
-        slide_path = self.wsi_paths[slide_sample]
-        slide = OpenSlide(slide_path)
-        width = slide.level_dimensions[level][0]
-        height = slide.level_dimensions[level][1]
-        # take nearest multiple of 128 of height and width (for patches)
-        width = round(width/128)*128
-        height = round(height/128)*128
+    def get_resize_dims(self, level: int, patch_height: int = 128, patch_width: int = 128, override=False):
+        if override is False:
+            width = self.sample_slide.level_dimensions[level][0]
+            height = self.sample_slide.level_dimensions[level][1]
+            # take nearest multiple of 128 of height and width (for patches)
+            width = round(width/patch_width)*patch_width
+            height = round(height/patch_height)*patch_height
+        else:
+            width = self.config["data.resize_width"]
+            height = self.config["data.resize_height"]
         return width, height
 
     def _get_slide_idx(self):
-        # filter slide index to only include samples with WSIs available
-        tmp_df = self.omic_df[self.omic_df.slide_id.isin(self.wsi_paths.keys())]
+        # filter slide index to only include samples with WSIs availables
+        filter_keys = [slide_id + ".svs" for slide_id in self.slide_ids]
+        tmp_df = self.omic_df[self.omic_df.slide_id.isin(filter_keys)]
         return dict(zip(tmp_df.index, tmp_df["slide_id"]))
 
     def __len__(self):
@@ -123,7 +141,7 @@ class TCGADataset(Dataset):
             return self.omic_df.shape[0]
         else:
             # only use overlap otherwise
-            return len(self.wsi_paths)
+            return len(self.slide_ids)
     def _get_slide_dict(self):
         """
         Given the download structure of the gdc-client, each slide is stored in a folder
@@ -137,12 +155,24 @@ class TCGADataset(Dataset):
         svs_dict = {path.name: path for path in svs_files}
         return svs_dict
 
-    @property
-    def sample_slide_id(self):
-        return next(iter(self.wsi_paths.keys()))
+    def _load_patch_coords(self):
+        """
+        Loads all patch coordinates for the dataset and level specified in the config and writes it to a dictionary
+        with key: slide_id and value: patch coordinates (where each coordinate is a x,y tupe)
+        """
+        coords = {}
+        for slide_id in self.slide_ids:
+            patch_path = self.prep_path.joinpath(f"patches/{slide_id}.h5")
+            h5_file = h5py.File(patch_path, "r")
+            patch_coords = h5_file["coords"][:]
+            coords[slide_id] = patch_coords
+        return coords
+
+    # @property
+    # def sample_slide_id(self):
+    #     return next(iter(self.wsi_paths.keys()))
 
     def get_info(self, full_detail: bool = False):
-        slide, tensor = self.load_wsi(self.sample_slide_id, level=self.level)
         slide_path = Path(self.config.tcga_path).joinpath(f"wsi/{self.dataset}/")
         print(f"Dataset: {self.dataset.upper()}")
         print(f"Molecular data shape: {self.omic_df.shape}")
@@ -151,15 +181,16 @@ class TCGADataset(Dataset):
         sample_overlap = (set(self.omic_df["slide_id"]) & set(self.wsi_paths.keys()))
         print(f"Molecular/Slide match: {len(sample_overlap)}/{len(self.omic_df)}")
         # print(f"Slide dimensions: {slide.dimensions}")
-        print(f"Slide level count: {slide.level_count}")
-        print(f"Slide level dimensions: {slide.level_dimensions}")
+        print(f"Slide level count: {self.sample_slide.level_count}")
+        print(f"Slide level dimensions: {self.sample_slide.level_dimensions}")
         print(f"Slide resize dimensions: w: {self.wsi_width}, h: {self.wsi_height}")
         print(f"Sources selected: {self.sources}")
         print(f"Censored share: {np.round(len(self.omic_df[self.omic_df['censorship'] == 1])/len(self.omic_df), 3)}")
+        print(f"Survival_bin_sizes: \n {self.omic_df['y_disc'].value_counts()}")
         # print(f"Target column: {self.target_col}")
 
         if full_detail:
-            pprint(dict(slide.properties))
+            pprint(dict(self.sample_slide.properties))
 
     def show_samples(self, n=1):
         # sample_df = self.omic_df.sample(n=n)
@@ -182,32 +213,43 @@ class TCGADataset(Dataset):
 
 
 
-    def load_omic(self, eps: float = 1e-6) -> pd.DataFrame:
+    def load_omic(self,
+                  eps: float = 1e-6
+                  ) -> pd.DataFrame:
         data_path = Path(self.config.tcga_path).joinpath(f"omic/tcga_{self.dataset}_all_clean.csv.zip")
         df = pd.read_csv(data_path, compression="zip", header=0, index_col=0, low_memory=False)
+        valid_subsets = ["all", "uncensored", "censored"]
+        assert self.subset in valid_subsets, "Invalid cut specified. Must be one of 'all', 'uncensored', 'censored'"
 
         # filter samples for which there are no slides available
         if self.filter_omic:
             start_shape = df.shape[0]
-            df = df[df["slide_id"].isin(self.wsi_paths.keys())]
+            # take only samples for which there are preprocessed slides available
+            filter_keys = [slide_id + ".svs" for slide_id in self.slide_ids]
+            df = df[df["slide_id"].isin(filter_keys)]
             print(f"Filtered out {start_shape - df.shape[0]} samples for which there are no slides available")
 
         # assign target column (high vs. low risk in equal parts of survival)
         label_col = "survival_months"
-        uncensored_df = df[df["censorship"] == 0] # patients with an event (e.g., death)
+        if self.subset == "all":
+            df["y_disc"] = pd.qcut(df[label_col], q=self.n_bins, labels=False).values
+        else:
+            if self.subset == "censored":
+                subset_df = df[df["censorship"] == 1]
+            elif self.subset == "uncensored":
+                subset_df = df[df["censorship"] == 0]
+            # take q_bins from uncensored patients
+            disc_labels, q_bins = pd.qcut(subset_df[label_col], q=self.n_bins, retbins=True, labels=False)
+            q_bins[-1] = df[label_col].max() + eps
+            q_bins[0] = df[label_col].min() - eps
+            # use bin cuts to discretize all patients
+            df["y_disc"] = pd.cut(df[label_col], bins=q_bins, retbins=False, labels=False, right=False, include_lowest=True).values
 
-        # take q_bins from uncensored patients
-        disc_labels, q_bins = pd.qcut(uncensored_df[label_col], q=self.n_bins, retbins=True, labels=False)
-        q_bins[-1] = df[label_col].max() + eps
-        q_bins[0] = df[label_col].min() - eps
-
-        # use bin cuts to discretize all patients
-        df["y_disc"] = pd.cut(df[label_col], bins=q_bins, retbins=False, labels=False, right=False, include_lowest=True).values
         df["y_disc"] = df["y_disc"].astype(int)
 
         return df
 
-    def load_wsi(self, slide_id: str, level: int = None, resolution: str = None) -> Tuple:
+    def load_wsi(self, slide_id: str, level: int = None) -> Tuple:
         """
         Load in single slide and get region at specified resolution level
         Args:
@@ -220,51 +262,96 @@ class TCGADataset(Dataset):
         """
 
         # load in openslide object
-        slide_path = self.wsi_paths[slide_id]
-        slide = OpenSlide(slide_path)
+        # slide_path = self.wsi_paths[slide_id]
+        # slide = OpenSlide(slide_path + ".svs")
+        slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
 
         # specify resolution level
-        if resolution is None and level is None:
-            raise ValueError("Must specify either resolution or level")
-        elif resolution is not None:
-            valid_resolutions = ["lowest", "mid", "highest"]
-            assert resolution in valid_resolutions, f"Invalid resolution arg, must be one of {valid_resolutions}"
-            if resolution == "lowest":
-                level = slide.level_count - 1
-            if resolution == "highest":
-                level = 0
-            if resolution == "mid":
-                level = int(slide.level_count / 2)
+        if level is None:
+            level = slide.level_count # lowest resolution by default
         if level > slide.level_count - 1:
             level = slide.level_count - 1
         # load in region
         size = slide.level_dimensions[level]
         region = slide.read_region((0,0), level, size)
-        # print(f"Transforming image {slide_id}")
+        # add transforms
         transform = transforms.Compose([
             transforms.ToTensor(),
             transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
             transforms.Resize((self.wsi_height, self.wsi_width)),
-            RearrangeTransform("c h w -> h w c")
+            RearrangeTransform("c h w -> h w c") # rearrange for Perceiver architecture
         ])
         region_tensor = transform(region)
-        # cast as float16
-        # region_tensor = region_tensor.to(dtype=torch.float16)
-
         return slide, region_tensor
 
-def to_tensor(img, dtype=torch.float32) -> torch.Tensor:
-    """
-    Helper function to convert PIL image to torch tensor and change the dtype.
-    This way, we can pass this function throough the transforms.Compose
-    Args:
-        img: PIL image
-        dtype: desired dtype of the tensor
+    def prefetch_patch_features(self) -> Dict:
+        """
+        Prefetches patch features for all slides in the dataset
+        Returns:
 
-    Returns:
-        torch.Tensor: tensor of dtype
-    """
-    return transforms.ToTensor()(img).to(dtype=dtype)
+        """
+        print(f"Prefecting patch features")
+        patch_features = {}
+        for idx, slide_id in enumerate(self.slide_ids):
+            print(f"Slide {idx + 1}/{len(self.slide_ids)}")
+            _, patch_features[slide_id] = self.load_patch_features(slide_id)
+        return patch_features
+
+    def load_patch_features(self, slide_id: str) -> torch.Tensor:
+        """
+
+        Args:
+            slide_id:
+            level:
+
+        Returns:
+
+        """
+        load_path = self.prep_path.joinpath(f"patch_features/{slide_id}.pt")
+        slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
+
+        patch_features = torch.load(load_path)
+        patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
+
+        return slide, patch_features
+
+
+
+
+    # def load_patches(self, slide_id):
+    #     """
+    #     Loads patches for a given slide_id encoded using a pretrained ResNet50 model
+    #     Args:
+    #         slide_id:
+    #
+    #     Returns:
+    #     """
+    #
+    #     # create a tensor of zeros - each sample requiring less patches will be zero-padded
+    #     patch_tensors = torch.zeros(self.max_patches, self.encoding_dims)
+    #     # patch_tensors = torch.zeros(self.patch_coords[slide_id].shape[0], 3, 256, 256)
+    #     slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
+    #
+    #     # if self.prep_path.joinpath("patch_features", f"{slide_id}.pt").exists():
+    #     #     patch_features = torch.load(self.prep_path.joinpath("patch_features", f"{slide_id}.pt"))
+    #     #     return slide, patch_features
+    #
+    #     for idx, coord in enumerate(self.patch_coords[slide_id]):
+    #         print(f"Loading patch {idx+1} of {self.patch_coords[slide_id].shape[0]}")
+    #         x, y = coord
+    #         region_transform = transforms.Compose([
+    #             transforms.Lambda(lambda image: image.convert("RGB")), # need to convert to RGB for ResNet encoding
+    #             transforms.ToTensor(),
+    #             transforms.Resize((224, 224)), # resize in line with ResNet50
+    #             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet normalisation
+    #             ])
+    #         patch_size = self.config["data.patch_size"]
+    #         patch_region = region_transform(slide.read_region((x, y), level=self.level, size=(patch_size, patch_size)))
+    #         patch_region = patch_region.unsqueeze(0)
+    #         patch_features = self.patch_encoder(patch_region)
+    #         patch_tensors[idx] = patch_features.squeeze()
+    #
+    #     return slide, patch_tensors
 
 
 class RearrangeTransform(object):
@@ -282,6 +369,20 @@ class RepeatTransform(object):
     def __call__(self, img):
         img = repeat(img, self.pattern, b=self.b)
         return img
+
+
+# class EdgeDetectionTransform(object):
+#
+#     def __call__(self, img_tensor):
+#         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+#         edges = cv2.Canny(gray, 50, 150)
+#         # split image channels
+#         r, g, b, a = cv2.split(img)
+#
+#         edge_channel = Image.new("L", edges.size, color=128)
+#         new_image = Image.merge("RGBA")
+#         return edges
+
 
 
 if __name__ == '__main__':
