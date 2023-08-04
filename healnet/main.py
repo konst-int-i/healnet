@@ -11,21 +11,21 @@ import argparse
 from argparse import Namespace
 import yaml
 from tqdm import tqdm
-from x_perceiver.train import majority_classifier_acc
-from x_perceiver.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from x_perceiver.models.baselines import RegularizedFCNN
+from healnet.train import majority_classifier_acc
+from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
+from healnet.models.baselines import RegularizedFCNN
 import numpy as np
 from torchsummary import summary
 import torch_optimizer as t_optim
 from sksurv.metrics import concordance_index_censored, concordance_index_ipcw
 from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score
 from torch import optim
-from x_perceiver.models import FCNN, HealNet
+from healnet.models import FCNN, HealNet
 import pandas as pd
 from box import Box
 from torch.utils.data import Dataset, DataLoader
-from x_perceiver.utils import Config, flatten_config
-from x_perceiver.etl import TCGADataset
+from healnet.utils import Config, flatten_config
+from healnet.etl import TCGADataset
 from pathlib import Path
 from datetime import datetime
 pd.set_option('display.max_columns', 50)

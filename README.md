@@ -1,4 +1,4 @@
-# x-perceiver
+# HEALNet
 
 Explainable perceiver for multimodal tasks
 

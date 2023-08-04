@@ -1,7 +1,7 @@
 import einops
 from torch.utils.data import Dataset
 from torchvision import transforms
-from x_perceiver.utils import Config
+from healnet.utils import Config
 from openslide import OpenSlide
 import os
 from multiprocessing import Pool, cpu_count, Manager
@@ -43,8 +43,8 @@ class TCGADataset(Dataset):
 
 
         Examples:
-            >>> from x_perceiver.etl.loaders import TCGADataset
-            >>> from x_perceiver.utils import Config
+            >>> from healnet.etl.loaders import TCGADataset
+            >>> from healnet.utils import Config
             >>> config = Config("config/main.yml").read()
             >>> dataset = TCGADataset("blca", config)
             # get omic data
