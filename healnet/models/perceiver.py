@@ -4,6 +4,7 @@ Based on lucidrains implementation: https://github.com/lucidrains/perceiver-pyto
 
 from math import pi, log
 from functools import wraps
+from typing import *
 
 import torch
 from torch import nn, einsum
@@ -138,76 +139,69 @@ class Attention(nn.Module):
 
 # main class
 
-class Perceiver(nn.Module):
+class HealNet(nn.Module):
     def __init__(
         self,
         *,
-        num_freq_bands,
-        depth,
-        max_freq,
-        input_channels = 3,
-        input_axis = 2,
-        num_latents = 512,
-        latent_dim = 512,
-        cross_heads = 1,
-        latent_heads = 8,
-        cross_dim_head = 64,
-        latent_dim_head = 64,
-        num_classes = 1000,
-        attn_dropout = 0.,
-        ff_dropout = 0.,
-        weight_tie_layers = False,
-        fourier_encode_data = True,
-        self_per_cross_attn = 1,
-        final_classifier_head = True
+        modalities: int,
+        num_freq_bands: int,
+        depth: int,
+        max_freq: float,
+        input_channels: List,
+        input_axes: List,
+        num_latents: int = 512,
+        latent_dim: int = 512,
+        cross_heads: int = 1,
+        latent_heads: int = 8,
+        cross_dim_head: int = 64,
+        latent_dim_head: int = 64,
+        num_classes: int = 1000,
+        attn_dropout: float = 0.,
+        ff_dropout: float = 0.,
+        weight_tie_layers: bool = False,
+        fourier_encode_data: bool = True,
+        self_per_cross_attn: int = 1,
+        final_classifier_head: bool = True
     ):
-        """The shape of the final attention mechanism will be:
-        depth * (cross attention -> self_per_cross_attn * self attention)
-
-        Args:
-          num_freq_bands: Number of freq bands, with original value (2 * K + 1)
-          depth: Depth of net.
-          max_freq: Maximum frequency, hyperparameter depending on how
-              fine the data is.
-          freq_base: Base for the frequency
-          input_channels: Number of channels for each token of the input.
-          input_axis: Number of axes for input data (2 for images, 3 for video)
-          num_latents: Number of latents, or induced set points, or centroids.
-              Differednt papers giving it different names.
-          latent_dim: Latent dimension.
-          cross_heads: Number of heads for cross attention. Paper said 1.
-          latent_heads: Number of heads for latent self attention, 8.
-          cross_dim_head: Number of dimensions per cross attention head.
-          latent_dim_head: Number of dimensions per latent self attention head.
-          num_classes: Output number of classes.
-          attn_dropout: Attention dropout
-          ff_dropout: Feedforward dropout
-          weight_tie_layers: Whether to weight tie layers (optional).
-          fourier_encode_data: Whether to auto-fourier encode the data, using
-              the input_axis given. defaults to True, but can be turned off
-              if you are fourier encoding the data yourself.
-          self_per_cross_attn: Number of self attention blocks per cross attn.
-          final_classifier_head: mean pool and project embeddings to number of classes (num_classes) at the end
-        """
         super().__init__()
-        self.input_axis = input_axis
+        assert len(input_channels) == len(input_axes), 'input channels and input axis must be of the same length'
+        assert len(input_axes) == modalities, 'input axis must be of the same length as the number of modalities'
+
+        self.input_axes = input_axes
+        self.input_channels=input_channels
         self.max_freq = max_freq
         self.num_freq_bands = num_freq_bands
+        self.modalities = modalities
 
         self.fourier_encode_data = fourier_encode_data
-        fourier_channels = (input_axis * ((num_freq_bands * 2) + 1)) if fourier_encode_data else 0
-        input_dim = fourier_channels + input_channels
 
+        # get fourier channels and input dims for each modality
+        fourier_channels = []
+        input_dims = []
+        for axis in input_axes:
+            fourier_channels.append((axis * ((num_freq_bands * 2) + 1)) if fourier_encode_data else 0)
+        for f_channels, i_channels in zip(fourier_channels, input_channels):
+            input_dims.append(f_channels + i_channels)
+
+
+        # initialise shared latent bottleneck
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
 
-        get_cross_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, input_dim, heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dim)
+        # modality-specific attention layers
+        funcs = []
+        for m in range(modalities):
+            funcs.append(lambda m=m: PreNorm(latent_dim, Attention(latent_dim, input_dims[m], heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dims[m]))
+        cross_attn_funcs = tuple(map(cache_fn, tuple(funcs)))
+
         get_latent_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, heads = latent_heads, dim_head = latent_dim_head, dropout = attn_dropout))
         get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
         get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
 
-        get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_attn, get_cross_ff, get_latent_attn, get_latent_ff))
+        get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_ff, get_latent_attn, get_latent_ff))
 
         self.layers = nn.ModuleList([])
+
+
         for i in range(depth):
             should_cache = i > 0 and weight_tie_layers
             cache_args = {'_cache': should_cache}
@@ -215,16 +209,21 @@ class Perceiver(nn.Module):
             self_attns = nn.ModuleList([])
 
             for block_ind in range(self_per_cross_attn):
-                self_attns.append(nn.ModuleList([
-                    get_latent_attn(**cache_args, key = block_ind),
-                    get_latent_ff(**cache_args, key = block_ind)
-                ]))
+                self_attns.append(get_latent_attn(**cache_args, key = block_ind))
+                self_attns.append(get_latent_ff(**cache_args, key = block_ind))
 
-            self.layers.append(nn.ModuleList([
-                get_cross_attn(**cache_args),
-                get_cross_ff(**cache_args),
-                self_attns
-            ]))
+
+            cross_attn_layers = []
+            for j in range(modalities):
+                cross_attn_layers.append(cross_attn_funcs[j](**cache_args))
+                cross_attn_layers.append(get_cross_ff(**cache_args))
+
+            # print(f"Layer {i+1} module list: ")
+            # print(nn.ModuleList([*cross_attn_layers, self_attns]))
+
+            self.layers.append(nn.ModuleList(
+                [*cross_attn_layers, self_attns])
+            )
 
         self.to_logits = nn.Sequential(
             Reduce('b n d -> b d', 'mean'),
@@ -232,49 +231,67 @@ class Perceiver(nn.Module):
             nn.Linear(latent_dim, num_classes)
         ) if final_classifier_head else nn.Identity()
 
-    def forward(
-        self,
-        data,
-        mask = None,
-        return_embeddings = False
-    ):
-        b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
-        assert len(axis) == self.input_axis, f'input data must have the right number of axis' \
-                                             f'len(axis): {len(axis)}, input_axis: {self.input_axis}'
 
-        if self.fourier_encode_data:
-            # calculate fourier encoded positions in the range of [-1, 1], for all axis
+    def forward(self,
+                tensors: List[torch.Tensor],
+                mask: Optional[torch.Tensor] = None,
+                return_embeddings: bool = False
+                ):
 
-            axis_pos = list(map(lambda size: torch.linspace(-1., 1., steps=size, device=device, dtype=dtype), axis))
-            pos = torch.stack(torch.meshgrid(*axis_pos, indexing = 'ij'), dim = -1)
-            enc_pos = fourier_encode(pos, self.max_freq, self.num_freq_bands)
-            enc_pos = rearrange(enc_pos, '... n d -> ... (n d)')
-            enc_pos = repeat(enc_pos, '... -> b ...', b = b)
+        for i in range(self.modalities):
+            data = tensors[i]
+            # sanity checks
+            b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
+            assert len(axis) == self.input_axes[i], (f'input data for modality {i+1} must hav'
+                                                          f' the same number of axis as the input axis parameter')
 
-            data = torch.cat((data, enc_pos), dim = -1)
+            # fourier encode for each modality
+            if self.fourier_encode_data:
+                pos = torch.linspace(0, 1, axis[0], device = device, dtype = dtype)
+                enc_pos = fourier_encode(pos, self.max_freq, self.num_freq_bands)
+                enc_pos = rearrange(enc_pos, 'n d -> () n d')
+                enc_pos = repeat(enc_pos, '() n d -> b n d', b = b)
+                data = torch.cat((data, enc_pos), dim = -1)
 
-        # concat to channels of data and flatten axis
+            # concat and flatten axis for each modality
+            data = rearrange(data, 'b ... d -> b (...) d')
+            tensors[i] = data
 
-        data = rearrange(data, 'b ... d -> b (...) d')
 
-        x = repeat(self.latents, 'n d -> b n d', b = b)
+        x = repeat(self.latents, 'n d -> b n d', b = b) # note: batch dim should be identical across modalities
 
-        # layers
+        for layer in self.layers:
+            for i in range(self.modalities):
+                cross_attn= layer[i*2]
+                cross_ff = layer[(i*2)+1]
+                x = cross_attn(x, context = tensors[i], mask = mask) + x
+                x =  cross_ff(x) + x
 
-        for cross_attn, cross_ff, self_attns in self.layers:
-            x = cross_attn(x, context = data, mask = mask) + x
-            x = cross_ff(x) + x
+            self_attn, self_ff = layer[-1]
 
-            for self_attn, self_ff in self_attns:
-                x = self_attn(x) + x
-                x = self_ff(x) + x
-
-        # allow for fetching embeddings
+            x = self_attn(x) + x
+            x = self_ff(x) + x
 
         if return_embeddings:
             return x
 
-        # to logits
-
         return self.to_logits(x)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 

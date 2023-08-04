@@ -1,5 +1,5 @@
-from x_perceiver.etl import TCGADataset
-from x_perceiver.utils import Config
+from healnet.etl import TCGADataset
+from healnet.utils import Config
 from pathlib import Path
 
 def filter_manifest_files(config: Config, dataset: str):

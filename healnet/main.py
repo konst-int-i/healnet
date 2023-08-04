@@ -11,21 +11,21 @@ import argparse
 from argparse import Namespace
 import yaml
 from tqdm import tqdm
-from x_perceiver.train import majority_classifier_acc
-from x_perceiver.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from x_perceiver.models.baselines import RegularizedFCNN
+from healnet.train import majority_classifier_acc
+from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
+from healnet.models.baselines import RegularizedFCNN
 import numpy as np
 from torchsummary import summary
 import torch_optimizer as t_optim
 from sksurv.metrics import concordance_index_censored, concordance_index_ipcw
 from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score
 from torch import optim
-from x_perceiver.models import Perceiver, FCNN
+from healnet.models import FCNN, HealNet
 import pandas as pd
 from box import Box
 from torch.utils.data import Dataset, DataLoader
-from x_perceiver.utils import Config, flatten_config
-from x_perceiver.etl import TCGADataset
+from healnet.utils import Config, flatten_config
+from healnet.etl import TCGADataset
 from pathlib import Path
 from datetime import datetime
 pd.set_option('display.max_columns', 50)
@@ -187,9 +187,21 @@ class Pipeline:
         """
         feat, _, _, _ = next(iter(train_data))
         if self.config.model == "perceiver":
-            model = Perceiver(
-                input_channels=feat.shape[2], # number of features as input channels
-                input_axis=1, # second axis (b n_feats c)
+
+            modalities = len(self.config["sources"])
+            if modalities == 1:
+                input_channels = [feat[0].shape[2]]
+                input_axes = [1]
+            elif modalities == 2:
+                input_channels = [feat[0].shape[2], feat[1].shape[2]]
+                input_axes = [1, 1]
+
+            # print(input_channels, input_axes)
+
+            model = HealNet(
+                modalities=modalities,
+                input_channels=input_channels, # number of features as input channels
+                input_axes=input_axes, # second axis (b n_feats c)
                 num_freq_bands=self.config["model_params.num_freq_bands"],
                 depth=self.config["model_params.depth"],
                 max_freq=self.config["model_params.max_freq"],
@@ -209,29 +221,9 @@ class Pipeline:
             )
             model.float()
             model.to(self.device)
-            summary(model, input_size=feat.shape[1:])
-            # elif self.sources == ["slides"]:
-            #     model = Perceiver(
-            #         input_channels=feat.shape[2], # number of patches as input channels
-            #         input_axis=1, # feature axis
-            #
-            #         # num_freq_bands=6,
-            #         # max_freq=10.,
-            #         # depth=1,  # number of cross-attention iterations
-            #         # num_classes=self.output_dims,
-            #         # num_latents=4,
-            #         # latent_dim=4,  # latent dim of transformer
-            #         # cross_dim_head=16,
-            #         # latent_dim_head=16,
-            #         # attn_dropout=0.5,
-            #         # ff_dropout=0.5,
-            #         # weight_tie_layers=False,
-            #         # cross_heads=1,
-            #         # final_classifier_head=True
-            #     )
-            #     model.to(self.device) # need to move to GPU to get summary
-            #     feat, _, _, _ = next(iter(train_data))
-            #     summary(model, input_size=feat.shape[1:]) # omit batch dim
+            # summary(model, input_size=[feat[0].shape[1:], feat[1].shape[1:]])
+
+
         elif self.config.model == "fcnn":
             # feat, _, _, _ = next(iter(train_data))
             # feat = feat.squeeze()
@@ -295,6 +287,7 @@ class Pipeline:
                     print(features.dtype)
                 optimizer.zero_grad()
                 # forward + backward + optimize
+
                 outputs = model.forward(features)
                 loss = criterion(outputs, y_disc)
                 # temporary
@@ -406,18 +399,21 @@ class Pipeline:
 
             for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
-                features = features.to(self.device) # features available for patient
+                features = [feat.to(self.device) for feat in features] # features available for patient
                 censorship = censorship.to(self.device) # status 0 or 1
                 event_time = event_time.to(self.device) # survival months (continuous)
                 y_disc = y_disc.to(self.device) # discretized survival time bucket
 
                 if batch == 0 and epoch == 0: # print model summary
-                    print(features.shape)
-                    print(features.dtype)
+                    print(f"Modality shapes: ")
+                    [print(feat.shape) for feat in features]
+                    print(f"Modality dtypes:")
+                    [print(feat.dtype) for feat in features]
 
                 optimizer.zero_grad()
                 # forward + backward + optimize
-                logits = model.forward(features)
+                logits = model.forward(tensors=features)
+                # logits = model.forward(features)
                 y_hat = torch.topk(logits, k=1, dim=1)[1]
                 hazards = torch.sigmoid(logits)  # sigmoid to get hazards from predictions for surv analysis
                 survival = torch.cumprod(1-hazards, dim=1)  # as per paper, survival = cumprod(1-hazards)
@@ -498,7 +494,7 @@ class Pipeline:
 
         for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(test_data)):
             # only move to GPU now (use CPU for preprocessing)
-            features = features.to(self.device)
+            features = [feat.to(self.device) for feat in features]
             censorship = censorship.to(self.device)
             event_time = event_time.to(self.device)
             y_disc = y_disc.to(self.device)

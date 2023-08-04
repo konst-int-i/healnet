@@ -1,5 +1,5 @@
 from invoke import task
-from x_perceiver.utils import Config
+from healnet.utils import Config
 from torchvision import transforms
 from pathlib import Path
 from openslide import OpenSlide

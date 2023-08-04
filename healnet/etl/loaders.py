@@ -1,7 +1,7 @@
 import einops
 from torch.utils.data import Dataset
 from torchvision import transforms
-from x_perceiver.utils import Config
+from healnet.utils import Config
 from openslide import OpenSlide
 import os
 from multiprocessing import Pool, cpu_count, Manager
@@ -43,8 +43,8 @@ class TCGADataset(Dataset):
 
 
         Examples:
-            >>> from x_perceiver.etl.loaders import TCGADataset
-            >>> from x_perceiver.utils import Config
+            >>> from healnet.etl.loaders import TCGADataset
+            >>> from healnet.utils import Config
             >>> config = Config("config/main.yml").read()
             >>> dataset = TCGADataset("blca", config)
             # get omic data
@@ -102,7 +102,7 @@ class TCGADataset(Dataset):
         event_time = self.survival_months[index]
         if len(self.sources) == 1 and self.sources[0] == "omic":
             omic_tensor = self.omic_tensor[index]
-            return omic_tensor, censorship, event_time, y_disc
+            return [omic_tensor], censorship, event_time, y_disc
 
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
@@ -113,9 +113,18 @@ class TCGADataset(Dataset):
                 # print("cache hit")
                 slide_tensor = self.patch_cache[index]
 
-            return slide_tensor, censorship, event_time, y_disc
+            return [slide_tensor], censorship, event_time, y_disc
         else: # both
-            pass
+            omic_tensor = self.omic_tensor[index]
+            slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
+            if index not in self.patch_cache:
+                slide, slide_tensor = self.load_patch_features(slide_id)
+                self.patch_cache[index] = slide_tensor
+            else:
+                # print("cache hit")
+                slide_tensor = self.patch_cache[index]
+
+            return [omic_tensor, slide_tensor], censorship, event_time, y_disc
 
     def get_resize_dims(self, level: int, patch_height: int = 128, patch_width: int = 128, override=False):
         if override is False:
