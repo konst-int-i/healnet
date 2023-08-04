@@ -20,7 +20,7 @@ import torch_optimizer as t_optim
 from sksurv.metrics import concordance_index_censored, concordance_index_ipcw
 from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score
 from torch import optim
-from x_perceiver.models import Perceiver, FCNN, MMPerceiver
+from x_perceiver.models import FCNN, HealNet
 import pandas as pd
 from box import Box
 from torch.utils.data import Dataset, DataLoader
@@ -198,7 +198,7 @@ class Pipeline:
 
             # print(input_channels, input_axes)
 
-            model = MMPerceiver(
+            model = HealNet(
                 modalities=modalities,
                 input_channels=input_channels, # number of features as input channels
                 input_axes=input_axes, # second axis (b n_feats c)
