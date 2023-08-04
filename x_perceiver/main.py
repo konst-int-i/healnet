@@ -187,34 +187,21 @@ class Pipeline:
         """
         feat, _, _, _ = next(iter(train_data))
         if self.config.model == "perceiver":
-            # model = Perceiver(
-            #     input_channels=feat.shape[2], # number of features as input channels
-            #     input_axis=1, # second axis (b n_feats c)
-            #     num_freq_bands=self.config["model_params.num_freq_bands"],
-            #     depth=self.config["model_params.depth"],
-            #     max_freq=self.config["model_params.max_freq"],
-            #     num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
-            #     num_latents = self.config["model_params.num_latents"],
-            #     latent_dim = self.config["model_params.latent_dim"],
-            #     cross_dim_head = self.config["model_params.cross_dim_head"],
-            #     latent_dim_head = self.config["model_params.latent_dim_head"],
-            #     cross_heads = self.config["model_params.cross_heads"],
-            #     latent_heads = self.config["model_params.latent_heads"],
-            #     attn_dropout = self.config["model_params.attn_dropout"],  # non-default
-            #     ff_dropout = self.config["model_params.ff_dropout"],  # non-default
-            #     weight_tie_layers = self.config["model_params.weight_tie_layers"],
-            #     fourier_encode_data = self.config["model_params.fourier_encode_data"],
-            #     self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
-            #     final_classifier_head = True
-            # )
-            # model.float()
-            # model.to(self.device)
-            # summary(model, input_size=feat.shape[1:])
-            #
+
+            modalities = len(self.config["sources"])
+            if modalities == 1:
+                input_channels = [feat[0].shape[2]]
+                input_axes = [1]
+            elif modalities == 2:
+                input_channels = [feat[0].shape[2], feat[1].shape[2]]
+                input_axes = [1, 1]
+
+            # print(input_channels, input_axes)
+
             model = MMPerceiver(
-                modalities=1,
-                input_channels=[feat.shape[2]], # number of features as input channels
-                input_axes=[1], # second axis (b n_feats c)
+                modalities=modalities,
+                input_channels=input_channels, # number of features as input channels
+                input_axes=input_axes, # second axis (b n_feats c)
                 num_freq_bands=self.config["model_params.num_freq_bands"],
                 depth=self.config["model_params.depth"],
                 max_freq=self.config["model_params.max_freq"],
@@ -234,7 +221,7 @@ class Pipeline:
             )
             model.float()
             model.to(self.device)
-            # summary(model, input_size=[feat.shape[1:]])
+            # summary(model, input_size=[feat[0].shape[1:], feat[1].shape[1:]])
 
 
         elif self.config.model == "fcnn":
@@ -412,18 +399,18 @@ class Pipeline:
 
             for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
-                features = features.to(self.device) # features available for patient
+                features = [feat.to(self.device) for feat in features] # features available for patient
                 censorship = censorship.to(self.device) # status 0 or 1
                 event_time = event_time.to(self.device) # survival months (continuous)
                 y_disc = y_disc.to(self.device) # discretized survival time bucket
 
                 if batch == 0 and epoch == 0: # print model summary
-                    print(features.shape)
-                    print(features.dtype)
+                    [print(feat.shape) for feat in features]
+                    [print(feat.dtype) for feat in features]
 
                 optimizer.zero_grad()
                 # forward + backward + optimize
-                logits = model.forward(tensors=[features])
+                logits = model.forward(tensors=features)
                 # logits = model.forward(features)
                 y_hat = torch.topk(logits, k=1, dim=1)[1]
                 hazards = torch.sigmoid(logits)  # sigmoid to get hazards from predictions for surv analysis
@@ -505,12 +492,12 @@ class Pipeline:
 
         for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(test_data)):
             # only move to GPU now (use CPU for preprocessing)
-            features = features.to(self.device)
+            features = [feat.to(self.device) for feat in features]
             censorship = censorship.to(self.device)
             event_time = event_time.to(self.device)
             y_disc = y_disc.to(self.device)
 
-            y_hat = model.forward([features])
+            y_hat = model.forward(features)
             hazards = torch.sigmoid(y_hat)
             survival = torch.cumprod(1-hazards, dim=1)
             risk = -torch.sum(survival, dim=1).detach().cpu().numpy()

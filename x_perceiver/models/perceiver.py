@@ -329,17 +329,16 @@ class MMPerceiver(nn.Module):
         for f_channels, i_channels in zip(fourier_channels, input_channels):
             input_dims.append(f_channels + i_channels)
 
+
+        print(input_dims)
         # initialise shared latent bottleneck
         self.latents = nn.Parameter(torch.randn(num_latents, latent_dim))
 
         # modality-specific attention layers
-        cross_attn_funcs = []
-        # get_cross_attn = []
+        funcs = []
         for m in range(modalities):
-            get_cross_attention = lambda: PreNorm(latent_dim, Attention(latent_dim, input_dims[m], heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dims[m])
-            cross_attn_funcs.append(get_cross_attention)
-
-        cross_attn_funcs = list(map(cache_fn, (*cross_attn_funcs,)))
+            funcs.append(lambda m=m: PreNorm(latent_dim, Attention(latent_dim, input_dims[m], heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dims[m]))
+        cross_attn_funcs = tuple(map(cache_fn, tuple(funcs)))
 
         get_latent_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, heads = latent_heads, dim_head = latent_dim_head, dropout = attn_dropout))
         get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
@@ -348,7 +347,7 @@ class MMPerceiver(nn.Module):
         get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_ff, get_latent_attn, get_latent_ff))
 
         self.layers = nn.ModuleList([])
-        print(cross_attn_funcs)
+
 
         for i in range(depth):
             should_cache = i > 0 and weight_tie_layers
@@ -360,14 +359,17 @@ class MMPerceiver(nn.Module):
                 self_attns.append(get_latent_attn(**cache_args, key = block_ind))
                 self_attns.append(get_latent_ff(**cache_args, key = block_ind))
 
-            cross_list = [(cross_attn_funcs[j](**cache_args),
-                           get_cross_ff(**cache_args))
-                          for j in range(modalities)]
-            cross_list = [item for tup in cross_list for item in tup]
 
+            cross_attn_layers = []
+            for j in range(modalities):
+                cross_attn_layers.append(cross_attn_funcs[j](**cache_args))
+                cross_attn_layers.append(get_cross_ff(**cache_args))
+
+            print(f"Layer {i+1} module list: ")
+            print(nn.ModuleList([*cross_attn_layers, self_attns]))
 
             self.layers.append(nn.ModuleList(
-                [*cross_list, self_attns])
+                [*cross_attn_layers, self_attns])
             )
 
         self.to_logits = nn.Sequential(
@@ -406,7 +408,6 @@ class MMPerceiver(nn.Module):
         x = repeat(self.latents, 'n d -> b n d', b = b) # note: batch dim should be identical across modalities
 
         for layer in self.layers:
-            # print(layer)
             for i in range(self.modalities):
                 cross_attn= layer[i*2]
                 cross_ff = layer[(i*2)+1]
