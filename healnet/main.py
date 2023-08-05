@@ -84,7 +84,7 @@ class Pipeline:
         valid_tasks = ["survival", "classification"]
         assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
 
-        valid_models = ["healnet", "custom", "fcnn"]
+        valid_models = ["healnet", "fcnn", "healnet_early"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
         valid_class_weights = ["inverse", "inverse_root", None]
@@ -223,6 +223,34 @@ class Pipeline:
             model.float()
             model.to(self.device)
             # summary(model, input_size=[feat[0].shape[1:], feat[1].shape[1:]])
+
+        elif self.config.model == "healnet_early":
+            modalities = 1 # same model just single modality
+            input_channels = [feat[0].shape[2]]
+            input_axes = [1]
+            model = HealNet(
+                modalities=modalities,
+                input_channels=input_channels, # number of features as input channels
+                input_axes=input_axes, # second axis (b n_feats c)
+                num_freq_bands=self.config["model_params.num_freq_bands"],
+                depth=self.config["model_params.depth"],
+                max_freq=self.config["model_params.max_freq"],
+                num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
+                num_latents = self.config["model_params.num_latents"],
+                latent_dim = self.config["model_params.latent_dim"],
+                cross_dim_head = self.config["model_params.cross_dim_head"],
+                latent_dim_head = self.config["model_params.latent_dim_head"],
+                cross_heads = self.config["model_params.cross_heads"],
+                latent_heads = self.config["model_params.latent_heads"],
+                attn_dropout = self.config["model_params.attn_dropout"],  # non-default
+                ff_dropout = self.config["model_params.ff_dropout"],  # non-default
+                weight_tie_layers = self.config["model_params.weight_tie_layers"],
+                fourier_encode_data = self.config["model_params.fourier_encode_data"],
+                self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
+                final_classifier_head = True
+            )
+            model.float()
+            model.to(self.device)
 
         elif self.config.model == "fcnn":
             model = RegularizedFCNN(output_dim=self.output_dims)
@@ -469,7 +497,6 @@ class Pipeline:
                                 loss_reg: float=0.0,
                                 **kwargs):
 
-        # criterion = NLLSurvLoss()
         print(f"Running validation...")
         model.eval()
         risk_scores = []

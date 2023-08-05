@@ -74,6 +74,9 @@ class RegularizedFCNN(nn.Module):
                 l2_reg = l2_reg + torch.norm(param, 2)
         return self.l2_penalty * l2_reg
 
+
+
+
 # class ConvNet(nn.Module):
 #
 #     def __init__(self, input_size: List[int], hidden_sizes, output_size: int):

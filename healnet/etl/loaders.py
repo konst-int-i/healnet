@@ -71,7 +71,7 @@ class TCGADataset(Dataset):
         # self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(self.raw_path)]
 
         # for early fusion baseline, we need to concatenate omic and slide features into a single tensor
-        self.concat = True if self.config.model == "fcnn" and len(self.sources) > 1 else False
+        self.concat = True if self.config.model in ["fcnn", "healnet_early"] and len(self.sources) > 1 else False
 
         valid_sources = ["omic", "slides"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
@@ -82,7 +82,7 @@ class TCGADataset(Dataset):
         self.omic_df = self.load_omic()
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.omic_tensor = torch.Tensor(self.features.values)
-        if self.config.model == "healnet":
+        if self.config.model in ["healnet"]:
             # Perceiver model expects inputs of the shape (batch_size, sequence_length, input_dim)
             self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n seq_length feat", seq_length=1)
 
@@ -131,6 +131,8 @@ class TCGADataset(Dataset):
                 slide_flat = torch.flatten(slide_tensor)
                 omic_flat = torch.flatten(omic_tensor)
                 concat_tensor = torch.cat([omic_flat, slide_flat], dim=0)
+                if self.config.model == "healnet_early":
+                    concat_tensor = concat_tensor.unsqueeze(0)
                 return [concat_tensor], censorship, event_time, y_disc
             else: # keep separate for HEALNet
                 return [omic_tensor, slide_tensor], censorship, event_time, y_disc

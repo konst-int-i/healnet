@@ -26,7 +26,7 @@ sources:
   - omic
   - slides
 
-model: healnet # [fcnn, healnet]
+model: healnet_early # [fcnn, healnet, perceiver_early]
 #model: fcnn
 
 
