@@ -134,10 +134,6 @@ class Pipeline:
         print(f"Train samples: {train_size}, Test samples: {test_size}")
         train, test = torch.utils.data.random_split(data, [train_size, test_size])
 
-        # temp fix to avoid ulimit error
-        # use_val_cache = False if self.config["dataset"] == "brca" else True
-        # test.use_cache = use_val_cache
-
 
         # calculate class weights for imbalanced datasets (if model_params.class_weights is True)
         # if self.config["model_params.class_weights"] is not None:
