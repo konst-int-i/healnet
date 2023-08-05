@@ -26,7 +26,7 @@ class TCGADataset(Dataset):
 
     def __init__(self, dataset: str,
                  config: Box,
-                 level: int=3,
+                 level: int=2,
                  filter_omic: bool = True,
                  survival_analysis: bool = True,
                  num_classes: int = 2,
@@ -106,22 +106,22 @@ class TCGADataset(Dataset):
 
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
+
             if index not in self.patch_cache:
-                slide, slide_tensor = self.load_patch_features(slide_id)
+                slide_tensor = self.load_patch_features(slide_id)
                 self.patch_cache[index] = slide_tensor
             else:
-                # print("cache hit")
                 slide_tensor = self.patch_cache[index]
 
             return [slide_tensor], censorship, event_time, y_disc
         else: # both
             omic_tensor = self.omic_tensor[index]
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
+
             if index not in self.patch_cache:
-                slide, slide_tensor = self.load_patch_features(slide_id)
+                slide_tensor = self.load_patch_features(slide_id)
                 self.patch_cache[index] = slide_tensor
             else:
-                # print("cache hit")
                 slide_tensor = self.patch_cache[index]
 
             return [omic_tensor, slide_tensor], censorship, event_time, y_disc
@@ -306,7 +306,7 @@ class TCGADataset(Dataset):
             _, patch_features[slide_id] = self.load_patch_features(slide_id)
         return patch_features
 
-    def load_patch_features(self, slide_id: str) -> torch.Tensor:
+    def load_patch_features(self, slide_id: str) -> Tuple:
         """
 
         Args:
@@ -317,13 +317,15 @@ class TCGADataset(Dataset):
 
         """
         load_path = self.prep_path.joinpath(f"patch_features/{slide_id}.pt")
-        slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
-
-        patch_features = torch.load(load_path)
+        with open(load_path, "rb") as file:
+            patch_features = torch.load(file, weights_only=True)
         patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
+        return patch_features
 
-        return slide, patch_features
 
+
+def count_open_files():
+    return len(os.listdir(f'/proc/{os.getpid()}/fd'))
 
 
 

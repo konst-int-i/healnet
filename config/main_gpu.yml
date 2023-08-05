@@ -4,7 +4,7 @@ gdc_client: /home/kh701/pycharm/x-perceiver/gdc-client
 log_path: /home/kh701/pycharm/x-perceiver/logs
 seed: 42
 
-dataset: blca
+dataset: brca
 
 wandb: True
 
@@ -19,10 +19,9 @@ data:
   prefetch: False
 
 
-
 task: survival # [survival, classification]
 sources:
-  - omic
+#  - omic
   - slides
 
 model: perceiver # [fcnn, perceiver]
