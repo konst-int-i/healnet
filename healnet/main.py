@@ -13,7 +13,7 @@ import yaml
 from tqdm import tqdm
 from healnet.train import majority_classifier_acc
 from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from healnet.models.baselines import RegularizedFCNN
+from healnet.baselines import RegularizedFCNN
 import numpy as np
 from torchsummary import summary
 import torch_optimizer as t_optim
