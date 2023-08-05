@@ -579,7 +579,7 @@ if __name__ == "__main__":
 
     if args.mode == "run_plan":
         grid = ParameterGrid(
-            {"dataset": ["blca"],
+            {"dataset": ["blca", "brca"],
              "sources": [["omic"], ["slides"], ["omic", "slides"]],
              "model": ["fcnn", "healnet"],
              })
@@ -598,6 +598,9 @@ if __name__ == "__main__":
                     args=args,
                 )
             pipeline.main()
+
+        print(f"Successfully finished runplan"
+              f"{print(list(grid))}")
 
     else: # single_run or sweep
         pipeline = Pipeline(
