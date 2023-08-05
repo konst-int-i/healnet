@@ -31,7 +31,8 @@ class TCGADataset(Dataset):
                  survival_analysis: bool = True,
                  num_classes: int = 2,
                  n_bins: int = 4,
-                 sources: List = ["omic", "slides"]):
+                 sources: List = ["omic", "slides"],
+                 ):
         """
         Dataset wrapper to load different TCGA data modalities (omic and WSI data).
         Args:
@@ -40,7 +41,6 @@ class TCGADataset(Dataset):
             filter_omic: filter omic data (self.feature, self.molecular_df) to only include samples with
                 corresponding WSI data
             n_bins: number of discretised bins for survival analysis
-
 
         Examples:
             >>> from healnet.etl.loaders import TCGADataset
@@ -69,6 +69,9 @@ class TCGADataset(Dataset):
         os.makedirs(self.prep_path.joinpath("patch_features"), exist_ok=True)
         self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(prep_path.joinpath("patches"))]
         # self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(self.raw_path)]
+
+        # for early fusion baseline, we need to concatenate omic and slide features into a single tensor
+        self.concat = True if self.config.model == "fcnn" and len(self.sources) > 1 else False
 
         valid_sources = ["omic", "slides"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
@@ -124,7 +127,13 @@ class TCGADataset(Dataset):
             else:
                 slide_tensor = self.patch_cache[index]
 
-            return [omic_tensor, slide_tensor], censorship, event_time, y_disc
+            if self.concat: # for early fusion baseline
+                slide_flat = torch.flatten(slide_tensor)
+                omic_flat = torch.flatten(omic_tensor)
+                concat_tensor = torch.cat([omic_flat, slide_flat], dim=0)
+                return [concat_tensor], censorship, event_time, y_disc
+            else: # keep separate for HEALNet
+                return [omic_tensor, slide_tensor], censorship, event_time, y_disc
 
     def get_resize_dims(self, level: int, patch_height: int = 128, patch_width: int = 128, override=False):
         if override is False:

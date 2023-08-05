@@ -199,9 +199,6 @@ class Pipeline:
             elif modalities == 2:
                 input_channels = [feat[0].shape[2], feat[1].shape[2]]
                 input_axes = [1, 1]
-
-            # print(input_channels, input_axes)
-
             model = HealNet(
                 modalities=modalities,
                 input_channels=input_channels, # number of features as input channels
@@ -227,17 +224,9 @@ class Pipeline:
             model.to(self.device)
             # summary(model, input_size=[feat[0].shape[1:], feat[1].shape[1:]])
 
-
         elif self.config.model == "fcnn":
-            # feat, _, _, _ = next(iter(train_data))
-            # feat = feat.squeeze()
-            # modality-specific models
-            if self.sources == ["omic"]:
-                model = RegularizedFCNN(output_dim=self.output_dims)
-                model.to(self.device)
-            elif self.sources == ["slides"]:
-                model = None
-                pass
+            model = RegularizedFCNN(output_dim=self.output_dims)
+            model.to(self.device)
         return model
 
 
@@ -385,7 +374,7 @@ class Pipeline:
         Returns:
 
         """
-        print(f"Training surivival model")
+        print(f"Training survival model using {self.config.model}")
         optimizer = t_optim.lamb.Lamb(model.parameters(), lr=self.config["optimizer.lr"])
         # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
@@ -418,8 +407,7 @@ class Pipeline:
 
                 optimizer.zero_grad()
                 # forward + backward + optimize
-                logits = model.forward(tensors=features)
-                # logits = model.forward(features)
+                logits = model.forward(features)
                 y_hat = torch.topk(logits, k=1, dim=1)[1]
                 hazards = torch.sigmoid(logits)  # sigmoid to get hazards from predictions for surv analysis
                 survival = torch.cumprod(1-hazards, dim=1)  # as per paper, survival = cumprod(1-hazards)

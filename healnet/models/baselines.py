@@ -45,7 +45,11 @@ class RegularizedFCNN(nn.Module):
         self.dropout_layer = nn.Dropout(dropout_rate)
         self.output_layer = nn.Linear(64, output_dim)
 
-    def forward(self, inputs):
+    def forward(self, inputs: List[torch.Tensor]):
+
+        if type(inputs) == list:
+            inputs = inputs[0]
+
         # Get the input dimension and create the input layer if it doesn't exist
         if self.input_layer is None:
             input_dim = inputs.shape[1]
