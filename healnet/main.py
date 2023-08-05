@@ -4,8 +4,7 @@ sys.path.append("/home/kh701/pycharm/x-perceiver/")
 import torch
 import torch.nn as nn
 from torch.autograd.profiler import profile
-from sklearn.model_selection import KFold
-import os
+from sklearn.model_selection import KFold, ParameterGrid
 import multiprocessing
 import argparse
 from argparse import Namespace
@@ -17,10 +16,10 @@ from healnet.baselines import RegularizedFCNN
 import numpy as np
 from torchsummary import summary
 import torch_optimizer as t_optim
-from sksurv.metrics import concordance_index_censored, concordance_index_ipcw
-from sklearn.metrics import accuracy_score, roc_auc_score, f1_score, confusion_matrix, precision_score, recall_score
+from sksurv.metrics import concordance_index_censored
+from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 from torch import optim
-from healnet.models import FCNN, HealNet
+from healnet.models import HealNet
 import pandas as pd
 from box import Box
 from torch.utils.data import Dataset, DataLoader
@@ -53,7 +52,7 @@ class Pipeline:
 
     def wandb_setup(self) -> None:
 
-        if args.hyperparameter_sweep:
+        if args.mode == "sweep":
             with open(self.args.sweep_config, "r") as f:
                 sweep_config = yaml.safe_load(f)
 
@@ -97,7 +96,7 @@ class Pipeline:
     def main(self):
 
         # Initialise wandb run (do here for sweep)
-        if self.args.hyperparameter_sweep:
+        if self.args.mode == "sweep":
             # update config with sweep config
             wandb.init(project="x-perceiver", name=None) # init sweep run
             for key, value in wandb.config.items():
@@ -567,7 +566,7 @@ if __name__ == "__main__":
 
     # assumes execution
     parser.add_argument("--config_path", type=str, default="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml", help="Path to config file")
-    parser.add_argument("--hyperparameter_sweep", type=bool, default=False, help="Whether to run wandb hyperparameter sweep")
+    parser.add_argument("--mode", type=str, default="single_run", choices=["single_run", "sweep", "run_plan"])
     parser.add_argument("--sweep_config", type=str, default="config/sweep_bayesian.yaml", help="Hyperparameter sweep configuration")
 
     # call config
@@ -577,8 +576,32 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method(MP_CONTEXT)
     config_path = args.config_path
     config = Config(config_path).read()
-    pipeline = Pipeline(
-            config=config,
-            args=args,
-        )
-    pipeline.main()
+
+    if args.mode == "run_plan":
+        grid = ParameterGrid(
+            {"dataset": ["blca"],
+             "sources": [["omic"], ["slides"], ["omic", "slides"]],
+             "model": ["fcnn", "healnet"],
+             })
+        folds = 3
+
+        for iteration, params in enumerate(grid):
+            dataset, sources, model = params["dataset"], params["sources"], params["model"]
+            print(f"Run plan iteration {iteration+1}/{len(grid)}")
+            print(f"Dataset: {dataset}, Sources: {sources}, Model: {model}")
+            config["dataset"] = dataset
+            config["sources"] = sources
+            config["model"] = model
+            config["n_folds"] = folds
+            pipeline = Pipeline(
+                    config=config,
+                    args=args,
+                )
+            pipeline.main()
+
+    else: # single_run or sweep
+        pipeline = Pipeline(
+                    config=config,
+                    args=args,
+                )
+        pipeline.main()
