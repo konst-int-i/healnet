@@ -227,7 +227,7 @@ class MMPrognosis(TrainableModel):
         self.fcg = nn.Linear(60483, 256)
         self.highway = Highway(256, 10, f=F.relu)
         self.fc2 = nn.Linear(256, 2)
-        self.fcd = nn.Linear(256, 1)
+        self.fcd = nn.Linear(256, 1) # TODO: 4 out features
         self.bn1 = nn.BatchNorm1d(256)
         self.bn2 = nn.BatchNorm1d(256)
         self.bn3 = nn.BatchNorm1d(1, affine=True)
@@ -255,6 +255,7 @@ class MMPrognosis(TrainableModel):
         w = w.view(w.shape[0], -1)
         w = F.tanh(self.squeezenet(w.view(B*N, C, H, W)).view(B, N, -1).mean(dim=1))
 
+        # TODO: add masks (all ones in our case, no missing mods)
         mean = masked_mean((x, y, z, w), (mask["mirna"], mask["clinical"], mask["gene"], mask["slides"]))
 
 
@@ -272,6 +273,8 @@ class MMPrognosis(TrainableModel):
         x = F.dropout(x, 0.5, training=self.training)
         x = self.highway(x)
         x = self.bn2(x)
+
+        # TODO: convert to logits
 
         score = F.log_softmax(self.fc2(x), dim=1)
         hazard = self.fcd(x)
