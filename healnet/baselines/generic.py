@@ -5,6 +5,7 @@ Some relatively generic baseline models for comparison - mainly using the regula
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
+from typing import *
 
 class FCNN(nn.Module):
 
