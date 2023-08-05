@@ -115,8 +115,11 @@ class TCGADataset(Dataset):
                 self.patch_cache[index] = slide_tensor
             else:
                 slide_tensor = self.patch_cache[index]
+            if self.config.model == "fcnn": # for fcnn baseline
+                slide_tensor = torch.flatten(slide_tensor)
 
             return [slide_tensor], censorship, event_time, y_disc
+
         else: # both
             omic_tensor = self.omic_tensor[index]
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
