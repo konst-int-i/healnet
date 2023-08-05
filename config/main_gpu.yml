@@ -4,8 +4,8 @@ gdc_client: /home/kh701/pycharm/x-perceiver/gdc-client
 log_path: /home/kh701/pycharm/x-perceiver/logs
 seed: 1
 
-dataset: blca
-model: healnet_early # [fcnn, healnet, healnet_early]
+dataset: ucec
+model: healnet # [fcnn, healnet, healnet_early]
 
 n_folds: 1
 

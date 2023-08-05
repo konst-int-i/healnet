@@ -77,7 +77,7 @@ class Pipeline:
         assert self.config["survival.loss"] in valid_survival_losses, f"Invalid survival loss specified. " \
                                                                    f"Valid losses are {valid_survival_losses}"
 
-        valid_datasets = ["blca", "brca"]
+        valid_datasets = ["blca", "brca", "kirp", "ucec"]
         assert self.config.dataset in valid_datasets, f"Invalid dataset specified. Valid datasets are {valid_datasets}"
 
         valid_tasks = ["survival", "classification"]
