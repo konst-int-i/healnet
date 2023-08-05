@@ -48,10 +48,6 @@ class Pipeline:
             print(f"Setting default cuda tensor to double")
             torch.set_default_tensor_type(torch.cuda.DoubleTensor)
 
-        # fix random seeds for reproducibility
-        torch.manual_seed(self.config.seed)
-        np.random.seed(self.config.seed)
-
         # set up wandb logging
         self.wandb_setup()
 
@@ -108,19 +104,30 @@ class Pipeline:
                 if key in self.config.keys():
                     self.config[key] = value
 
+        train_c_indeces, val_c_indeces = [], []
 
-        train_data, test_data = self.load_data()
-        model = self.make_model(train_data)
-        wandb.watch(model)
-        if self.config.task == "survival":
-            self.train_survival(model, train_data, test_data)
+        for fold in range(1, self.config["n_folds"] + 1):
+            print(f"Running fold {fold}")
+            # fix random seeds for reproducibility
+            torch.manual_seed(fold)
+            np.random.seed(fold)
 
-        elif self.config.task == "classification":
-            self.train_clf(model, train_data, test_data)
+            train_data, test_data = self.load_data(fold=fold)
+            model = self.make_model(train_data)
+            wandb.watch(model)
+            if self.config.task == "survival":
+                _, train_c_index, _, val_c_index = self.train_survival_fold(model, train_data, test_data, fold)
+                train_c_indeces.append(train_c_index)
+                val_c_indeces.append(val_c_index)
+            elif self.config.task == "classification":
+                self.train_clf(model, train_data, test_data)
+        # log average and standard deviation across folds
+        wandb.log({"mean_train_c_index": np.mean(train_c_indeces),
+                   "mean_val_c_index": np.mean(val_c_index)})
 
         wandb.finish()
 
-    def load_data(self):
+    def load_data(self, fold: int = None) -> tuple:
         data = TCGADataset(self.config["dataset"],
                            self.config,
                            level=int(self.config["data.wsi_level"]),
@@ -292,7 +299,7 @@ class Pipeline:
                 outputs = model.forward(features)
                 loss = criterion(outputs, y_disc)
                 # temporary
-                # loss += model.l1_regularization() + model.l2_regularization()
+
                 loss.backward()
                 optimizer.step()
                 scheduler.step()
@@ -363,13 +370,14 @@ class Pipeline:
         model.train()
 
 
-    def train_survival(self,
-                       model: nn.Module,
-                       train_data: DataLoader,
-                       test_data: DataLoader,
-                       loss_reg: float = 0.0,
-                       gc: int = 16,
-                       **kwargs):
+    def train_survival_fold(self,
+                            model: nn.Module,
+                            train_data: DataLoader,
+                            test_data: DataLoader,
+                            fold: int = 1,
+                            loss_reg: float = 0.0,
+                            gc: int = 16,
+                            **kwargs):
         """
         Trains model for survival analysis
         Args:
@@ -390,8 +398,9 @@ class Pipeline:
                                                   steps_per_epoch=len(train_data))
 
         model.train()
+
         for epoch in range(self.config["train_loop.epochs"]):
-            print(f"Epoch {epoch}")
+            print(f"Epoch {epoch+1}")
             risk_scores = []
             censorships = []
             event_times = []
@@ -420,11 +429,6 @@ class Pipeline:
                 survival = torch.cumprod(1-hazards, dim=1)  # as per paper, survival = cumprod(1-hazards)
                 risk = -torch.sum(survival, dim=1).detach().cpu().numpy()  # risk = -sum(survival)
 
-                # print(f"{logits=}")
-                # print(f"{y_hat=}")
-                # print(f"{hazards=}")
-                # print(f"{survival=}")
-                # print(f"{risk=}")
                 if self.config["survival.loss"] == "nll":
                     # loss_fn = NLLSurvLoss()
                     # loss = loss_fn(h=hazards, y=y_disc, c=censorship)
@@ -457,20 +461,18 @@ class Pipeline:
             censorships_full = np.concatenate(censorships)
             event_times_full = np.concatenate(event_times)
 
-            # print(f"{risk_scores_full=}")
-            # print(f"{censorships_full=}")
-            # print(f"{event_times_full=}")
-
             # calculate epoch-level concordance index
             train_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full, tied_tol=1e-08)[0]
-            # f1 = f1_score(labels, predictions, average="macro")
-            wandb.log({"train_loss": train_loss, "train_c_index": train_c_index}, step=epoch)
+            wandb.log({f"fold_{fold}_train_loss": train_loss, f"fold_{fold}_train_c_index": train_c_index}, step=epoch)
             print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, train_c_index))
 
-
-            if epoch % self.config["train_loop.eval_interval"] == 0:
+            # evaluate at interval or if final epoch
+            if epoch % self.config["train_loop.eval_interval"] == 0 or epoch == self.config["train_loop.epochs"] - 1:
                 val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data, loss_reg=loss_reg)
-                wandb.log({"val_loss": val_loss, "val_c_index": val_c_index}, step=epoch)
+                wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch)
+
+            # return final values
+            return train_loss, train_c_index, val_loss, val_c_index
 
             # checkpoint model after epoch
             # if epoch % self.config["train_loop.checkpoint_interval"] == 0:

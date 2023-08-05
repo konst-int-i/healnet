@@ -2,9 +2,11 @@ data_path: /net/archive/export/tcga
 tcga_path: /net/archive/export/tcga/tcga
 gdc_client: /home/kh701/pycharm/x-perceiver/gdc-client
 log_path: /home/kh701/pycharm/x-perceiver/logs
-seed: 42
+seed: 1
 
-dataset: brca
+dataset: blca
+
+n_folds: 2
 
 wandb: True
 
@@ -21,8 +23,8 @@ data:
 
 task: survival # [survival, classification]
 sources:
-#  - omic
-  - slides
+  - omic
+#  - slides
 
 model: perceiver # [fcnn, perceiver]
 #model: fcnn
@@ -35,9 +37,9 @@ survival: # all parameters related to survival task
 
 train_loop:
   checkpoint_interval: 10
-  eval_interval: 5
+  eval_interval: 1
   batch_size: 8
-  epochs: 50
+  epochs: 3
 
 optimizer:
   max_lr: 0.005
