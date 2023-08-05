@@ -105,9 +105,8 @@ class Pipeline:
                     self.config[key] = value
 
         train_c_indeces, val_c_indeces = [], []
-
-        for fold in range(1, self.config["n_folds"] + 1):
-            print(f"Running fold {fold}")
+        for fold in range(1, self.config["n_folds"]+1):
+            print(f"*****FOLD {fold}*****")
             # fix random seeds for reproducibility
             torch.manual_seed(fold)
             np.random.seed(fold)
@@ -123,7 +122,9 @@ class Pipeline:
                 self.train_clf(model, train_data, test_data)
         # log average and standard deviation across folds
         wandb.log({"mean_train_c_index": np.mean(train_c_indeces),
-                   "mean_val_c_index": np.mean(val_c_index)})
+                   "mean_val_c_index": np.mean(val_c_index),
+                   "std_train_c_index": np.std(train_c_indeces),
+                    "std_val_c_index": np.std(val_c_index)})
 
         wandb.finish()
 
@@ -142,16 +143,11 @@ class Pipeline:
         train, test = torch.utils.data.random_split(data, [train_size, test_size])
 
 
-        # calculate class weights for imbalanced datasets (if model_params.class_weights is True)
-        # if self.config["model_params.class_weights"] is not None:
         # calculate class weights
         if self.config["model_params.class_weights"] == None:
             self.class_weights = None
         else:
             self.class_weights = torch.Tensor(self._calc_class_weights(train)).float().to(self.device)
-
-        # self.class_weights = self._calc_class_weights(train)
-
 
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
@@ -399,8 +395,8 @@ class Pipeline:
 
         model.train()
 
-        for epoch in range(self.config["train_loop.epochs"]):
-            print(f"Epoch {epoch+1}")
+        for epoch in range(1, self.config["train_loop.epochs"]+1):
+            print(f"Epoch {epoch}")
             risk_scores = []
             censorships = []
             event_times = []
@@ -471,8 +467,8 @@ class Pipeline:
                 val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data, loss_reg=loss_reg)
                 wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch)
 
-            # return final values
-            return train_loss, train_c_index, val_loss, val_c_index
+        # return values of final epoch
+        return train_loss, train_c_index, val_loss, val_c_index
 
             # checkpoint model after epoch
             # if epoch % self.config["train_loop.checkpoint_interval"] == 0:
