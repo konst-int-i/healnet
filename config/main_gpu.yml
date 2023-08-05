@@ -6,7 +6,7 @@ seed: 1
 
 dataset: blca
 
-n_folds: 3
+n_folds: 1
 
 wandb: True
 
@@ -26,8 +26,8 @@ sources:
   - omic
   - slides
 
-#model: perceiver # [fcnn, perceiver]
-model: fcnn
+model: healnet # [fcnn, healnet]
+#model: fcnn
 
 
 survival: # all parameters related to survival task
@@ -36,9 +36,9 @@ survival: # all parameters related to survival task
 
 train_loop:
   checkpoint_interval: 10
-  eval_interval: 1
+  eval_interval: 5
   batch_size: 8
-  epochs: 2
+  epochs: 30
 
 optimizer:
   max_lr: 0.005

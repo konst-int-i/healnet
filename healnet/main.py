@@ -84,7 +84,7 @@ class Pipeline:
         valid_tasks = ["survival", "classification"]
         assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
 
-        valid_models = ["perceiver", "custom", "fcnn"]
+        valid_models = ["healnet", "custom", "fcnn"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
         valid_class_weights = ["inverse", "inverse_root", None]
@@ -190,7 +190,7 @@ class Pipeline:
             nn.Module: model used for training
         """
         feat, _, _, _ = next(iter(train_data))
-        if self.config.model == "perceiver":
+        if self.config.model == "healnet":
 
             modalities = len(self.config["sources"])
             if modalities == 1:
