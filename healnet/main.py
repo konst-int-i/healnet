@@ -557,14 +557,14 @@ class Pipeline:
         event_times_full = np.concatenate(event_times)
 
         # calculate epoch-level concordance index
-        c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
+        val_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
         # f1 = f1_score(labels, predictions, average="macro")
         print('Epoch: {}, val_loss: {:.4f}, val_c_index: {:.4f}'.format(epoch, val_loss, val_c_index))
         # print(f"Epoch: {epoch}, val_loss: {np.round(val_loss.cpu().detach().numpy(), 5)}, "
         #       f"val_c_index: {np.round(c_index, 5)}")
 
         model.train()
-        return val_loss, c_index
+        return val_loss, val_c_index
 
 
 if __name__ == "__main__":
