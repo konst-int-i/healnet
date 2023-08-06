@@ -24,7 +24,7 @@ data:
 task: survival # [survival, classification]
 sources:
   - omic
-#  - slides
+  - slides
 
 
 survival: # all parameters related to survival task

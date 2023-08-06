@@ -602,7 +602,7 @@ if __name__ == "__main__":
         #      "sources": [["omic"], ["omic", "slides"]],
         #      "model": ["healnet"],
         #      })
-        folds = 1
+        folds = 3
 
         for iteration, params in enumerate(grid):
             dataset, sources, model = params["dataset"], params["sources"], params["model"]
