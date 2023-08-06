@@ -245,7 +245,7 @@ class TCGADataset(Dataset):
         # handle missing values
         num_nans = df.isna().sum().sum()
         nan_counts = df.isna().sum()[df.isna().sum() > 0]
-        df = df.fillna(df.mean())
+        df = df.fillna(df.mean(numeric_only=True))
         print(f"Filled {num_nans} missing values with mean")
         print(f"Missing values per feature: \n {nan_counts}")
 
