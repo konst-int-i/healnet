@@ -121,9 +121,9 @@ class Pipeline:
                 self.train_clf(model, train_data, test_data)
         # log average and standard deviation across folds
         wandb.log({"mean_train_c_index": np.mean(train_c_indeces),
-                   "mean_val_c_index": np.mean(val_c_index),
+                   "mean_val_c_index": np.mean(val_c_indeces),
                    "std_train_c_index": np.std(train_c_indeces),
-                    "std_val_c_index": np.std(val_c_index)})
+                    "std_val_c_index": np.std(val_c_indeces)})
 
         wandb.finish()
 
@@ -387,7 +387,7 @@ class Pipeline:
                             train_data: DataLoader,
                             test_data: DataLoader,
                             fold: int = 1,
-                            loss_reg: float = 0.0,
+                            # loss_reg: float = 0.0,
                             gc: int = 16,
                             **kwargs):
         """
@@ -451,6 +451,9 @@ class Pipeline:
                     loss_fn = CoxPHSurvLoss()
                     loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
+                l1_norm = sum(p.abs().sum() for p in model.parameters())
+                reg_loss = float(self.config["optimizer.l1"]) * l1_norm
+
                 # log risk, censorship and event time for concordance index
                 risk_scores.append(risk)
                 censorships.append(censorship.detach().cpu().numpy())
@@ -458,14 +461,13 @@ class Pipeline:
 
                 loss_value = loss.item()
                 # train_loss_surv += loss_value
-                train_loss += loss_value + loss_reg
+                train_loss += loss_value + reg_loss
                 # backward pass
-                loss = loss / gc + loss_reg # gradient accumulation step
+                loss = loss / gc + reg_loss # gradient accumulation step
                 loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
 
-                # if (batch + 1) % gc == 0:
             train_loss /= len(train_data)
 
             risk_scores_full = np.concatenate(risk_scores)
@@ -479,7 +481,7 @@ class Pipeline:
 
             # evaluate at interval or if final epoch
             if epoch % self.config["train_loop.eval_interval"] == 0 or epoch == self.config["train_loop.epochs"] - 1:
-                val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data, loss_reg=loss_reg)
+                val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data)
                 wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch)
 
         # return values of final epoch
@@ -493,7 +495,7 @@ class Pipeline:
                                 epoch: int,
                                 model: nn.Module,
                                 test_data: DataLoader,
-                                loss_reg: float=0.0,
+                                # loss_reg: float=0.0,
                                 **kwargs):
 
         print(f"Running validation...")
@@ -527,6 +529,10 @@ class Pipeline:
                 loss_fn = CoxPHSurvLoss()
                 loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
+            # reg_loss = regularisation_loss(model, l1= self.config["optimizer.l1"], l2=self.config["optimizer.l2"])
+            l1_norm = sum(p.abs().sum() for p in model.parameters())
+            reg_loss = float(self.config["optimizer.l1"]) * l1_norm
+
             # log risk, censorship and event time for concordance index
             risk_scores.append(risk)
             censorships.append(censorship.detach().cpu().numpy())
@@ -534,7 +540,7 @@ class Pipeline:
 
             loss_value = loss.item()
             val_loss_surv += loss_value
-            val_loss += loss_value + loss_reg
+            val_loss += loss_value + reg_loss
 
             predictions.append(y_hat.argmax(1).cpu().tolist())
             labels.append(y_disc.detach().cpu().tolist())
@@ -553,8 +559,9 @@ class Pipeline:
         # calculate epoch-level concordance index
         c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
         # f1 = f1_score(labels, predictions, average="macro")
-        print(f"Epoch: {epoch}, val_loss: {np.round(val_loss, 5)}, "
-              f"val_c_index: {np.round(c_index, 5)}")
+        print('Epoch: {}, val_loss: {:.4f}, val_c_index: {:.4f}'.format(epoch, val_loss, val_c_index))
+        # print(f"Epoch: {epoch}, val_loss: {np.round(val_loss.cpu().detach().numpy(), 5)}, "
+        #       f"val_c_index: {np.round(c_index, 5)}")
 
         model.train()
         return val_loss, c_index
@@ -578,12 +585,17 @@ if __name__ == "__main__":
     config = Config(config_path).read()
 
     if args.mode == "run_plan":
+        # grid = ParameterGrid(
+        #     {"dataset": ["blca", "brca", "ucec", "kirp"],
+        #      "sources": [["omic"], ["slides"], ["omic", "slides"]],
+        #      "model": ["fcnn", "healnet", "healnet_early"],
+             # })
         grid = ParameterGrid(
-            {"dataset": ["blca", "brca"],
-             "sources": [["omic"], ["slides"], ["omic", "slides"]],
-             "model": ["fcnn", "healnet"],
+            {"dataset": ["blca"],
+             "sources": [["omic"], ["omic", "slides"]],
+             "model": ["healnet"],
              })
-        folds = 3
+        folds = 1
 
         for iteration, params in enumerate(grid):
             dataset, sources, model = params["dataset"], params["sources"], params["model"]
