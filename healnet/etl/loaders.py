@@ -26,21 +26,20 @@ class TCGADataset(Dataset):
 
     def __init__(self, dataset: str,
                  config: Box,
-                 level: int=3,
-                 filter_omic: bool = True,
+                 level: int=2,
+                 filter_overlap: bool = True,
                  survival_analysis: bool = True,
                  num_classes: int = 2,
                  n_bins: int = 4,
-                 sources: List = ["omic", "slides"]):
+                 sources: List = ["omic", "slides"],
+                 ):
         """
         Dataset wrapper to load different TCGA data modalities (omic and WSI data).
         Args:
             dataset:
             config:
-            filter_omic: filter omic data (self.feature, self.molecular_df) to only include samples with
-                corresponding WSI data
+            filter_overlap: filter omic data and/or slides that do not have a corresponding sample in the other modality
             n_bins: number of discretised bins for survival analysis
-
 
         Examples:
             >>> from healnet.etl.loaders import TCGADataset
@@ -57,7 +56,7 @@ class TCGADataset(Dataset):
         self.config = config
         self.dataset = dataset
         self.sources = sources
-        self.filter_omic = filter_omic
+        self.filter_overlap = filter_overlap
         self.survival_analysis = survival_analysis
         self.num_classes = num_classes
         self.n_bins = n_bins
@@ -68,7 +67,11 @@ class TCGADataset(Dataset):
         # create patch feature directory for first-time run
         os.makedirs(self.prep_path.joinpath("patch_features"), exist_ok=True)
         self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(prep_path.joinpath("patches"))]
-        # self.slide_ids = [slide_id.rsplit(".", 1)[0] for slide_id in os.listdir(self.raw_path)]
+
+
+
+        # for early fusion baseline, we need to concatenate omic and slide features into a single tensor
+        self.concat = True if self.config.model in ["fcnn", "healnet_early"] and len(self.sources) > 1 else False
 
         valid_sources = ["omic", "slides"]
         assert all([source in valid_sources for source in sources]), f"Invalid source specified. Valid sources are {valid_sources}"
@@ -79,7 +82,7 @@ class TCGADataset(Dataset):
         self.omic_df = self.load_omic()
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.omic_tensor = torch.Tensor(self.features.values)
-        if self.config.model == "perceiver":
+        if self.config.model in ["healnet"]:
             # Perceiver model expects inputs of the shape (batch_size, sequence_length, input_dim)
             self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n seq_length feat", seq_length=1)
 
@@ -106,25 +109,36 @@ class TCGADataset(Dataset):
 
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
+
             if index not in self.patch_cache:
-                slide, slide_tensor = self.load_patch_features(slide_id)
+                slide_tensor = self.load_patch_features(slide_id)
                 self.patch_cache[index] = slide_tensor
             else:
-                # print("cache hit")
                 slide_tensor = self.patch_cache[index]
+            if self.config.model == "fcnn": # for fcnn baseline
+                slide_tensor = torch.flatten(slide_tensor)
 
             return [slide_tensor], censorship, event_time, y_disc
+
         else: # both
             omic_tensor = self.omic_tensor[index]
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
+
             if index not in self.patch_cache:
-                slide, slide_tensor = self.load_patch_features(slide_id)
+                slide_tensor = self.load_patch_features(slide_id)
                 self.patch_cache[index] = slide_tensor
             else:
-                # print("cache hit")
                 slide_tensor = self.patch_cache[index]
 
-            return [omic_tensor, slide_tensor], censorship, event_time, y_disc
+            if self.concat: # for early fusion baseline
+                slide_flat = torch.flatten(slide_tensor)
+                omic_flat = torch.flatten(omic_tensor)
+                concat_tensor = torch.cat([omic_flat, slide_flat], dim=0)
+                if self.config.model == "healnet_early":
+                    concat_tensor = concat_tensor.unsqueeze(0)
+                return [concat_tensor], censorship, event_time, y_disc
+            else: # keep separate for HEALNet
+                return [omic_tensor, slide_tensor], censorship, event_time, y_disc
 
     def get_resize_dims(self, level: int, patch_height: int = 128, patch_width: int = 128, override=False):
         if override is False:
@@ -185,8 +199,6 @@ class TCGADataset(Dataset):
         slide_path = Path(self.config.tcga_path).joinpath(f"wsi/{self.dataset}/")
         print(f"Dataset: {self.dataset.upper()}")
         print(f"Molecular data shape: {self.omic_df.shape}")
-        slide_dirs = [f for f in os.listdir(slide_path) if not f.startswith(".")]
-        print(f"Total slides available: {len(slide_dirs)}")
         sample_overlap = (set(self.omic_df["slide_id"]) & set(self.wsi_paths.keys()))
         print(f"Molecular/Slide match: {len(sample_overlap)}/{len(self.omic_df)}")
         # print(f"Slide dimensions: {slide.dimensions}")
@@ -230,13 +242,40 @@ class TCGADataset(Dataset):
         valid_subsets = ["all", "uncensored", "censored"]
         assert self.subset in valid_subsets, "Invalid cut specified. Must be one of 'all', 'uncensored', 'censored'"
 
+        # handle missing values
+        num_nans = df.isna().sum().sum()
+        nan_counts = df.isna().sum()[df.isna().sum() > 0]
+        df = df.fillna(df.mean(numeric_only=True))
+        print(f"Filled {num_nans} missing values with mean")
+        print(f"Missing values per feature: \n {nan_counts}")
+
         # filter samples for which there are no slides available
-        if self.filter_omic:
-            start_shape = df.shape[0]
-            # take only samples for which there are preprocessed slides available
-            filter_keys = [slide_id + ".svs" for slide_id in self.slide_ids]
-            df = df[df["slide_id"].isin(filter_keys)]
-            print(f"Filtered out {start_shape - df.shape[0]} samples for which there are no slides available")
+        if self.filter_overlap:
+            slides_available = self.slide_ids
+            omic_available = [id[:-4] for id in df["slide_id"]]
+            overlap = set(slides_available) & set(omic_available)
+            print(f"Slides available: {len(slides_available)}")
+            print(f"Omic available: {len(omic_available)}")
+            print(f"Overlap: {len(overlap)}")
+            if len(slides_available) < len(omic_available):
+                print(f"Filtering out {len(omic_available) - len(slides_available)} samples for which there are no omic data available")
+                overlap_filter = [id + ".svs" for id in overlap]
+                df = df[df["slide_id"].isin(overlap_filter)]
+            elif len(slides_available) > len(omic_available):
+                print(f"Filtering out {len(slides_available) - len(omic_available)} samples for which there are no slides available")
+                self.slide_ids = overlap
+            else:
+                print("100% modality overlap, no samples filtered out")
+
+
+            # start_shape = df.shape[0]
+            # # take only samples for which there are preprocessed slides available
+            # filter_keys = [slide_id + ".svs" for slide_id in self.slide_ids]
+            # df = df[df["slide_id"].isin(filter_keys)]
+            # print(f"Filtered out {start_shape - df.shape[0]} samples for which there are no slides available")
+
+        # filter slides for which there is no omic data available
+        # filter_keys = [slide_id]
 
         # assign target column (high vs. low risk in equal parts of survival)
         label_col = "survival_months"
@@ -306,7 +345,7 @@ class TCGADataset(Dataset):
             _, patch_features[slide_id] = self.load_patch_features(slide_id)
         return patch_features
 
-    def load_patch_features(self, slide_id: str) -> torch.Tensor:
+    def load_patch_features(self, slide_id: str) -> Tuple:
         """
 
         Args:
@@ -317,13 +356,15 @@ class TCGADataset(Dataset):
 
         """
         load_path = self.prep_path.joinpath(f"patch_features/{slide_id}.pt")
-        slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
-
-        patch_features = torch.load(load_path)
+        with open(load_path, "rb") as file:
+            patch_features = torch.load(file, weights_only=True)
         patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
+        return patch_features
 
-        return slide, patch_features
 
+
+def count_open_files():
+    return len(os.listdir(f'/proc/{os.getpid()}/fd'))
 
 
 

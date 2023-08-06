@@ -2,9 +2,12 @@ data_path: /net/archive/export/tcga
 tcga_path: /net/archive/export/tcga/tcga
 gdc_client: /home/kh701/pycharm/x-perceiver/gdc-client
 log_path: /home/kh701/pycharm/x-perceiver/logs
-seed: 42
+seed: 1
 
-dataset: blca
+dataset: blca #  [blca, brca, ucec, kirp]
+model: healnet # [fcnn, healnet, healnet_early]
+
+n_folds: 1
 
 wandb: True
 
@@ -15,9 +18,7 @@ data:
   resize_width: 1024 # if resize is True
   patch_size: 256 # don't changed if used for pre-processing
   wsi_level: 2 # WSI resolution level (if available)
-#  patching: False # if True, patching is done in the data loader, else whole image is used
   prefetch: False
-
 
 
 task: survival # [survival, classification]
@@ -25,30 +26,30 @@ sources:
   - omic
   - slides
 
-model: perceiver # [fcnn, perceiver]
-#model: fcnn
-
-
 
 survival: # all parameters related to survival task
   loss: nll # valid: nll, ce_survival, cox
   subset: uncensored # subset used to calculate survival bin cutoffs
 
 train_loop:
-  checkpoint_interval: 10
-  eval_interval: 5
+  checkpoint_interval: 5
+  eval_interval: 1
   batch_size: 8
-  epochs: 50
+  epochs: 100
+  # early stopping
+  patience: 7
+  delta: 0.001
 
 optimizer:
   max_lr: 0.005
   lr: 0.002
   momentum: 0.92
   weight_decay: 0.00026 # or None
+  l1: 0.0001
 
 
 model_params:
-  # OMIC
+#  # OMIC
 #  output_dims: 4 # refers to n_classes for classification, n_bins for survival
 #  class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
 #  num_freq_bands: 2
@@ -60,26 +61,45 @@ model_params:
 #  latent_dim_head: 16
 #  cross_heads: 1
 #  latent_heads: 8
-#  attn_dropout: 0
-#  ff_dropout: 0
+#  attn_dropout: 0.5
+#  ff_dropout: 0.5
 #  fourier_encode_data: True
 #  self_per_cross_attn: 1  # if 0, no self attention at all
 #  weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
 
-  # SLIDES
+
+# Multi-modal
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  num_freq_bands: 5
-  depth: 6
+  num_freq_bands: 2
+  depth: 2
   max_freq: 2.
-  num_latents: 120
-  latent_dim: 100
-  cross_dim_head: 80
-  latent_dim_head: 128
+  num_latents: 4
+  latent_dim: 16
+  cross_dim_head: 16
+  latent_dim_head: 16
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.3
-  ff_dropout: 0.3
+  attn_dropout: 0.5
+  ff_dropout: 0.5
   fourier_encode_data: True
-  self_per_cross_attn: 1  # if 0, no self attention at all
+  self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
+
+  # SLIDES
+#  output_dims: 4 # refers to n_classes for classification, n_bins for survival
+#  class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
+#  num_freq_bands: 5
+#  depth: 2
+#  max_freq: 2.
+#  num_latents: 4
+#  latent_dim: 64
+#  cross_dim_head: 80
+#  latent_dim_head: 128
+#  cross_heads: 1
+#  latent_heads: 8
+#  attn_dropout: 0.3
+#  ff_dropout: 0.3
+#  fourier_encode_data: True
+#  self_per_cross_attn: 1  # if 0, no self attention at all
+#  weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large

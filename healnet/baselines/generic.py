@@ -1,8 +1,12 @@
+"""
+Some relatively generic baseline models for comparison - mainly using the regularised FCNN
+"""
+
 import torch.nn as nn
 import torch
 import torch.nn.functional as F
-from typing import List
-import einops
+from typing import *
+
 class FCNN(nn.Module):
 
     def __init__(self, input_size: int, hidden_sizes: List[int], output_size: int, dropout: float = 0.5):
@@ -45,7 +49,11 @@ class RegularizedFCNN(nn.Module):
         self.dropout_layer = nn.Dropout(dropout_rate)
         self.output_layer = nn.Linear(64, output_dim)
 
-    def forward(self, inputs):
+    def forward(self, inputs: List[torch.Tensor]):
+
+        if type(inputs) == list:
+            inputs = inputs[0]
+
         # Get the input dimension and create the input layer if it doesn't exist
         if self.input_layer is None:
             input_dim = inputs.shape[1]
@@ -70,14 +78,4 @@ class RegularizedFCNN(nn.Module):
                 l2_reg = l2_reg + torch.norm(param, 2)
         return self.l2_penalty * l2_reg
 
-# class ConvNet(nn.Module):
-#
-#     def __init__(self, input_size: List[int], hidden_sizes, output_size: int):
-#         super().__init__()
-#
-#         self.conv1 = nn.Conv2d(input_size[0], hidden_sizes[0], kernel_size=5)
-#         self.conv2 = nn.Conv2d(hidden_sizes[0], hidden_sizes[1], kernel_size=5)
-#         self.conv2_drop = nn.Dropout2d()
-#         self.fc1 = nn.Linear(hidden_sizes[1], hidden_sizes[2])
-#         self.fc2 = nn.Linear(hidden_sizes[2], output_size)
 

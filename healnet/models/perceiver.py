@@ -172,6 +172,7 @@ class HealNet(nn.Module):
         self.max_freq = max_freq
         self.num_freq_bands = num_freq_bands
         self.modalities = modalities
+        self.self_per_cross_attn = self_per_cross_attn
 
         self.fourier_encode_data = fourier_encode_data
 
@@ -267,10 +268,11 @@ class HealNet(nn.Module):
                 x = cross_attn(x, context = tensors[i], mask = mask) + x
                 x =  cross_ff(x) + x
 
-            self_attn, self_ff = layer[-1]
+            if self.self_per_cross_attn > 0:
+                self_attn, self_ff = layer[-1]
 
-            x = self_attn(x) + x
-            x = self_ff(x) + x
+                x = self_attn(x) + x
+                x = self_ff(x) + x
 
         if return_embeddings:
             return x
