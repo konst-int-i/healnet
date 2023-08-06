@@ -24,7 +24,7 @@ data:
 task: survival # [survival, classification]
 sources:
   - omic
-  - slides
+#  - slides
 
 
 survival: # all parameters related to survival task
@@ -33,9 +33,12 @@ survival: # all parameters related to survival task
 
 train_loop:
   checkpoint_interval: 5
-  eval_interval: 5
+  eval_interval: 1
   batch_size: 8
-  epochs: 50
+  epochs: 100
+  # early stopping
+  patience: 7
+  delta: 0.001
 
 optimizer:
   max_lr: 0.005
@@ -43,7 +46,6 @@ optimizer:
   momentum: 0.92
   weight_decay: 0.00026 # or None
   l1: 0.0001
-#  l2: 0.0001
 
 
 model_params:
@@ -74,8 +76,8 @@ model_params:
   max_freq: 2.
   num_latents: 4
   latent_dim: 16
-  cross_dim_head: 64
-  latent_dim_head: 64
+  cross_dim_head: 16
+  latent_dim_head: 16
   cross_heads: 1
   latent_heads: 8
   attn_dropout: 0.5

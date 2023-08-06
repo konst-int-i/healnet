@@ -11,6 +11,7 @@ from argparse import Namespace
 import yaml
 from tqdm import tqdm
 from healnet.train import majority_classifier_acc
+from healnet.utils import EarlyStopping, calc_reg_loss
 from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
 from healnet.baselines import RegularizedFCNN
 import numpy as np
@@ -87,7 +88,7 @@ class Pipeline:
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
         valid_class_weights = ["inverse", "inverse_root", None]
-        assert self.config["model_params.class_weight"] in valid_class_weights, f"Invalid class weight specified. " \
+        assert self.config["model_params.class_weights"] in valid_class_weights, f"Invalid class weight specified. " \
                                                                                 f"Valid weights are {valid_class_weights}"
 
         return None
@@ -143,7 +144,7 @@ class Pipeline:
 
 
         # calculate class weights
-        if self.config["model_params.class_weights"] == None:
+        if self.config["model_params.class_weights"] == "None":
             self.class_weights = None
         else:
             self.class_weights = torch.Tensor(self._calc_class_weights(train)).float().to(self.device)
@@ -408,8 +409,12 @@ class Pipeline:
                                                   max_lr=self.config["optimizer.max_lr"],
                                                   epochs=self.config["train_loop.epochs"],
                                                   steps_per_epoch=len(train_data))
+        early_stopping = EarlyStopping(patience=self.config["train_loop.patience"],
+                                       delta=self.config["train_loop.delta"],
+                                       maximize=True) # val_c_index as stopping criterion
 
         model.train()
+
 
         for epoch in range(1, self.config["train_loop.epochs"]+1):
             print(f"Epoch {epoch}")
@@ -451,8 +456,8 @@ class Pipeline:
                     loss_fn = CoxPHSurvLoss()
                     loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
-                l1_norm = sum(p.abs().sum() for p in model.parameters())
-                reg_loss = float(self.config["optimizer.l1"]) * l1_norm
+
+                reg_loss = calc_reg_loss(model, self.config["optimizer.l1"], self.config.model)
 
                 # log risk, censorship and event time for concordance index
                 risk_scores.append(risk)
@@ -483,6 +488,10 @@ class Pipeline:
             if epoch % self.config["train_loop.eval_interval"] == 0 or epoch == self.config["train_loop.epochs"] - 1:
                 val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data)
                 wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch)
+
+            if early_stopping(val_c_index):
+                print(f"Early stopping at epoch {epoch}")
+                break
 
         # return values of final epoch
         return train_loss, train_c_index, val_loss, val_c_index
@@ -529,9 +538,7 @@ class Pipeline:
                 loss_fn = CoxPHSurvLoss()
                 loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
-            # reg_loss = regularisation_loss(model, l1= self.config["optimizer.l1"], l2=self.config["optimizer.l2"])
-            l1_norm = sum(p.abs().sum() for p in model.parameters())
-            reg_loss = float(self.config["optimizer.l1"]) * l1_norm
+            reg_loss = calc_reg_loss(model, self.config["optimizer.l1"], self.config.model)
 
             # log risk, censorship and event time for concordance index
             risk_scores.append(risk)
@@ -585,16 +592,16 @@ if __name__ == "__main__":
     config = Config(config_path).read()
 
     if args.mode == "run_plan":
-        # grid = ParameterGrid(
-        #     {"dataset": ["blca", "brca", "ucec", "kirp"],
-        #      "sources": [["omic"], ["slides"], ["omic", "slides"]],
-        #      "model": ["fcnn", "healnet", "healnet_early"],
-             # })
         grid = ParameterGrid(
-            {"dataset": ["blca"],
+            {"dataset": ["blca", "brca", "ucec", "kirp"],
              "sources": [["omic"], ["omic", "slides"]],
-             "model": ["healnet"],
+             "model": ["healnet", "fcnn", "healnet_early"],
              })
+        # grid = ParameterGrid(
+        #     {"dataset": ["blca"],
+        #      "sources": [["omic"], ["omic", "slides"]],
+        #      "model": ["healnet"],
+        #      })
         folds = 1
 
         for iteration, params in enumerate(grid):
