@@ -7,7 +7,7 @@ seed: 1
 dataset: blca #  [blca, brca, ucec, kirp]
 model: healnet # [fcnn, healnet, healnet_early]
 
-n_folds: 1
+n_folds: 3
 
 wandb: True
 
