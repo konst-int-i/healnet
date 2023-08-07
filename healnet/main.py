@@ -3,10 +3,16 @@ sys.path.append("/home/kh701/pycharm/x-perceiver/")
 
 import torch
 import torch.nn as nn
+import traceback
 from torch.autograd.profiler import profile
 from sklearn.model_selection import KFold, ParameterGrid
 import multiprocessing
+from multiprocessing import Pool
+from concurrent.futures import ProcessPoolExecutor
+import concurrent.futures
+from functools import partial
 import argparse
+from itertools import repeat
 from argparse import Namespace
 import yaml
 from tqdm import tqdm
@@ -53,7 +59,7 @@ class Pipeline:
 
     def wandb_setup(self) -> None:
 
-        if args.mode == "sweep":
+        if self.args.mode == "sweep":
             with open(self.args.sweep_config, "r") as f:
                 sweep_config = yaml.safe_load(f)
 
@@ -115,9 +121,11 @@ class Pipeline:
             model = self.make_model(train_data)
             wandb.watch(model)
             if self.config.task == "survival":
+                # with torch.autograd.profiler.profile(use_cuda=False) as prof:
                 _, train_c_index, _, val_c_index = self.train_survival_fold(model, train_data, test_data, fold=fold)
                 train_c_indeces.append(train_c_index)
                 val_c_indeces.append(val_c_index)
+                # print(prof)
             elif self.config.task == "classification":
                 self.train_clf(model, train_data, test_data)
         # log average and standard deviation across folds
@@ -147,7 +155,7 @@ class Pipeline:
         if self.config["model_params.class_weights"] == "None":
             self.class_weights = None
         else:
-            self.class_weights = torch.Tensor(self._calc_class_weights(train)).float().to(self.device)
+            self.class_weights = torch.Tensor(self._calc_class_weights(train)).to(self.device)
 
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
@@ -155,7 +163,8 @@ class Pipeline:
                                 num_workers=multiprocessing.cpu_count(),
                                 pin_memory=True,
                                 multiprocessing_context=MP_CONTEXT,
-                                prefetch_factor=2
+                                persistent_workers=True,
+                                prefetch_factor=4
                                 )
 
         test_data = DataLoader(test,
@@ -164,7 +173,8 @@ class Pipeline:
                                num_workers=multiprocessing.cpu_count(),
                                pin_memory=True,
                                multiprocessing_context=MP_CONTEXT,
-                               prefetch_factor=2)
+                               persistent_workers=True,
+                               prefetch_factor=4)
         return train_data, test_data
 
     def _calc_class_weights(self, train):
@@ -570,6 +580,31 @@ class Pipeline:
         return val_loss, val_c_index
 
 
+def run_plan_iter(args):
+    iteration, params, config, cl_args = args
+    n_folds = 3
+    dataset, sources, model = params["dataset"], params["sources"], params["model"]
+    # print(f"Run plan iteration {iteration+1}/{len(grid)}")
+    print(f"New run plan iteration")
+    print(f"Dataset: {dataset}, Sources: {sources}, Model: {model}")
+
+    # skip healnet_early on single modality (same as regular healnet)
+    if model == "healnet_early" and len(sources) == 1:
+        return None
+    config["dataset"] = dataset
+    config["sources"] = sources
+    config["model"] = model
+    config["n_folds"] = n_folds
+    pipeline = Pipeline(
+            config=config,
+            args=cl_args,
+        )
+    pipeline.main()
+
+
+
+
+
 if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Run main training pipeline of x-perceiver")
@@ -578,6 +613,8 @@ if __name__ == "__main__":
     parser.add_argument("--config_path", type=str, default="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml", help="Path to config file")
     parser.add_argument("--mode", type=str, default="single_run", choices=["single_run", "sweep", "run_plan"])
     parser.add_argument("--sweep_config", type=str, default="config/sweep_bayesian.yaml", help="Hyperparameter sweep configuration")
+    parser.add_argument("--dataset", type=str, default=None, help="Dataset for run plan")
+    parser.add_argument("--datasets", type=list, default=["blca", "brca", "ucec", "kirp"], help="Datasets for run plan")
 
     # call config
     args = parser.parse_args()
@@ -588,16 +625,17 @@ if __name__ == "__main__":
     config = Config(config_path).read()
 
     if args.mode == "run_plan":
+        if args.dataset is not None:
+            datasets = [args.dataset]
+        else:
+            datasets = args.datasets
+
         grid = ParameterGrid(
-            {"dataset": ["blca", "brca", "ucec", "kirp"],
-             "sources": [["omic"], ["omic", "slides"]],
+            {"dataset": datasets,
+             "sources": [["omic"], ["slides"], ["omic", "slides"]],
              "model": ["healnet", "fcnn", "healnet_early"],
              })
-        # grid = ParameterGrid(
-        #     {"dataset": ["blca", "brca"],
-        #      "sources": [["omic"]],
-        #      "model": ["healnet"],
-        #      })
+
         n_folds = 3
 
         for iteration, params in enumerate(grid):

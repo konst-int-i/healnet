@@ -54,6 +54,7 @@ class TCGADataset(Dataset):
             >>>
         """
         self.config = config
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dataset = dataset
         self.sources = sources
         self.filter_overlap = filter_overlap
