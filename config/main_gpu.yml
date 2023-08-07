@@ -6,7 +6,7 @@ seed: 1
 hyperparams: config/best_hyperparams.yml
 
 dataset: brca #  [blca, brca, ucec, kirp]
-model: healnet_early # [fcnn, healnet, healnet_early]
+model: healnet # [fcnn, healnet, healnet_early]
 
 n_folds: 1
 
@@ -46,79 +46,3 @@ optimizer:
   lr: 0.002
   momentum: 0.92
   weight_decay: 0.00026 # or None
-#  l1: 0.0001
-
-
-model_params:
-  blca:
-    output_dims: 4 # refers to n_classes for classification, n_bins for survival
-    class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-    l1: 0.0001
-    num_freq_bands: 2
-    depth: 2
-    max_freq: 2.
-    num_latents: 4
-    latent_dim: 16
-    cross_dim_head: 16
-    latent_dim_head: 16
-    cross_heads: 1
-    latent_heads: 8
-    attn_dropout: 0.5
-    ff_dropout: 0.5
-    fourier_encode_data: True
-    self_per_cross_attn: 0  # if 0, no self attention at all
-    weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
-  brca:
-    output_dims: 4 # refers to n_classes for classification, n_bins for survival
-    class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-    l1: 0.0001
-    num_freq_bands: 2
-    depth: 2
-    max_freq: 2.
-    num_latents: 4
-    latent_dim: 16
-    cross_dim_head: 16
-    latent_dim_head: 16
-    cross_heads: 1
-    latent_heads: 8
-    attn_dropout: 0.5
-    ff_dropout: 0.5
-    fourier_encode_data: True
-    self_per_cross_attn: 0  # if 0, no self attention at all
-    weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
-  kirp:
-    output_dims: 4 # refers to n_classes for classification, n_bins for survival
-    class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-    l1: 0.0001
-    num_freq_bands: 2
-    depth: 2
-    max_freq: 2.
-    num_latents: 4
-    latent_dim: 16
-    cross_dim_head: 16
-    latent_dim_head: 16
-    cross_heads: 1
-    latent_heads: 8
-    attn_dropout: 0.5
-    ff_dropout: 0.5
-    fourier_encode_data: True
-    self_per_cross_attn: 0  # if 0, no self attention at all
-    weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
-  ucec:
-    output_dims: 4 # refers to n_classes for classification, n_bins for survival
-    class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-    l1: 0.0001
-    num_freq_bands: 2
-    depth: 2
-    max_freq: 2.
-    num_latents: 4
-    latent_dim: 16
-    cross_dim_head: 16
-    latent_dim_head: 16
-    cross_heads: 1
-    latent_heads: 8
-    attn_dropout: 0.5
-    ff_dropout: 0.5
-    fourier_encode_data: True
-    self_per_cross_attn: 0  # if 0, no self attention at all
-    weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
