@@ -1,30 +1,20 @@
 method: bayes
 metric:
   goal: maximize
-  name: val_c_index
+  name: mean_val_c_index
 parameters:
-  model_params.output_dims:
-    value: 4
-  model_params.weight_decay:
+  model_params.l1:
     distribution: uniform
-    min: 0
-    max: 0.001
-  model_params.num_freq_bands:
-    distribution: int_uniform
-    min: 2
-    max: 8
+    min: 0.0
+    max: 0.0005
   model_params.depth:
     distribution: int_uniform
-    min: 1
-    max: 6
-  model_params.max_freq:
-    distribution: int_uniform
-    min: 2.
-    max: 8.
+    min: 2
+    max: 4
   model_params.num_latents:
     distribution: int_uniform
     min: 4
-    max: 128
+    max: 16
   model_params.latent_dim:
     distribution: int_uniform
     min: 4
@@ -37,22 +27,4 @@ parameters:
     distribution: int_uniform
     min: 16
     max: 128
-  model_params.attn_dropout:
-    distribution: uniform
-    min: 0
-    max: 0.9
-  model_params.ff_dropout:
-    distribution: uniform
-    min: 0
-    max: 0.9
-  optimizer.lr:
-    distribution: uniform
-    max: 0.002
-    min: 0.0005
-  optimizer.momentum:
-    distribution: uniform
-    max: 0.95
-    min: 0.85
-  wandb:
-    value: "True"
 program: x_perceiver/main.py
