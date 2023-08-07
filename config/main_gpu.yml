@@ -3,6 +3,7 @@ tcga_path: /net/archive/export/tcga/tcga
 gdc_client: /home/kh701/pycharm/x-perceiver/gdc-client
 log_path: /home/kh701/pycharm/x-perceiver/logs
 seed: 1
+hyperparams: config/best_hyperparams.yml
 
 dataset: brca #  [blca, brca, ucec, kirp]
 model: healnet_early # [fcnn, healnet, healnet_early]
