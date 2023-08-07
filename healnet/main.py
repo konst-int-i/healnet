@@ -477,10 +477,12 @@ class Pipeline:
             wandb.log({f"fold_{fold}_train_loss": train_loss, f"fold_{fold}_train_c_index": train_c_index}, step=epoch)
             print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, train_c_index))
 
+
+
             # evaluate at interval or if final epoch
-            if epoch % self.config["train_loop.eval_interval"] == 0:
-                val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data)
-                wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch)
+            # if epoch % self.config["train_loop.eval_interval"] == 0 or epoch == self.config["train_loop.epochs"]:
+            val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data)
+            wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch)
 
             if early_stopping(val_c_index):
                 print(f"Early stopping at epoch {epoch}")
