@@ -607,6 +607,8 @@ if __name__ == "__main__":
     torch.multiprocessing.set_start_method(MP_CONTEXT)
     config_path = args.config_path
     config = Config(config_path).read()
+    if args.dataset is not None: # for command line sweeps
+        config["dataset"] = args.dataset
     # get best hyperparameters for dataset
     hyperparams = Config(config["hyperparams"]).read()[config.dataset]
     config["model_params"] = hyperparams
