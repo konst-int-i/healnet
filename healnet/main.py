@@ -44,9 +44,11 @@ class Pipeline:
 
     def __init__(self, config: Box, args: Namespace, wandb_name: str=None):
         self.config = flatten_config(config)
+        self.dataset = self.config.dataset
         self.args = args
+        self._check_config()
         self.wandb_name = wandb_name
-        self.output_dims = int(self.config["model_params.output_dims"])
+        self.output_dims = int(self.config[f"model_params.{self.dataset}.output_dims"])
         self.sources = self.config.sources
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -87,6 +89,9 @@ class Pipeline:
         valid_datasets = ["blca", "brca", "kirp", "ucec"]
         assert self.config.dataset in valid_datasets, f"Invalid dataset specified. Valid datasets are {valid_datasets}"
 
+        # # check that model parameters are specified
+        # assert self.config.dataset in self.config.model_params.keys(), f"Model parameters not specified for dataset {self.config.dataset}"
+
         valid_tasks = ["survival", "classification"]
         assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
 
@@ -94,7 +99,7 @@ class Pipeline:
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
         valid_class_weights = ["inverse", "inverse_root", None]
-        assert self.config["model_params.class_weights"] in valid_class_weights, f"Invalid class weight specified. " \
+        assert self.config[f"model_params.{self.dataset}.class_weights"] in valid_class_weights, f"Invalid class weight specified. " \
                                                                                 f"Valid weights are {valid_class_weights}"
 
         return None
@@ -152,7 +157,7 @@ class Pipeline:
 
 
         # calculate class weights
-        if self.config["model_params.class_weights"] == "None":
+        if self.config[f"model_params.{self.dataset}.class_weights"] == "None":
             self.class_weights = None
         else:
             self.class_weights = torch.Tensor(self._calc_class_weights(train)).to(self.device)
@@ -164,7 +169,7 @@ class Pipeline:
                                 pin_memory=True,
                                 multiprocessing_context=MP_CONTEXT,
                                 persistent_workers=True,
-                                prefetch_factor=4
+                                prefetch_factor=16
                                 )
 
         test_data = DataLoader(test,
@@ -174,17 +179,17 @@ class Pipeline:
                                pin_memory=True,
                                multiprocessing_context=MP_CONTEXT,
                                persistent_workers=True,
-                               prefetch_factor=4)
+                               prefetch_factor=16)
         return train_data, test_data
 
     def _calc_class_weights(self, train):
 
-        if self.config["model_params.class_weights"] in ["inverse", "inverse_root"]:
+        if self.config[f"model_params.{self.dataset}.class_weights"] in ["inverse", "inverse_root"]:
             train_targets = np.array(train.dataset.y_disc)[train.indices]
             _, counts = np.unique(train_targets, return_counts=True)
-            if self.config["model_params.class_weights"] == "inverse":
+            if self.config[f"model_params.{self.dataset}.class_weights"] == "inverse":
                 class_weights = 1. / counts
-            elif self.config["model_params.class_weights"] == "inverse_root":
+            elif self.config[f"model_params.{self.dataset}.class_weights"] == "inverse_root":
                 class_weights = 1. / np.sqrt(counts)
         else:
             class_weights = None
@@ -200,67 +205,75 @@ class Pipeline:
             nn.Module: model used for training
         """
         feat, _, _, _ = next(iter(train_data))
-        if self.config.model == "healnet":
+        if self.config.model in  ["healnet", "healnet_early"]:
 
-            modalities = len(self.config["sources"])
-            if modalities == 1:
+            num_sources = len(self.config["sources"])
+            if num_sources == 1:
                 input_channels = [feat[0].shape[2]]
                 input_axes = [1]
-            elif modalities == 2:
+                modalities = 1
+            elif num_sources == 2 and self.config.model == "healnet":
                 input_channels = [feat[0].shape[2], feat[1].shape[2]]
                 input_axes = [1, 1]
+                modalities = 2
+
+            # early fusion healnet (concatenation, so just one modality)
+            elif num_sources == 2 and self.config.model == "healnet_early":
+                modalities = 1 # same model just single modality
+                input_channels = [feat[0].shape[2]]
+                input_axes = [1]
             model = HealNet(
                 modalities=modalities,
                 input_channels=input_channels, # number of features as input channels
                 input_axes=input_axes, # second axis (b n_feats c)
-                num_freq_bands=self.config["model_params.num_freq_bands"],
-                depth=self.config["model_params.depth"],
-                max_freq=self.config["model_params.max_freq"],
-                num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
-                num_latents = self.config["model_params.num_latents"],
-                latent_dim = self.config["model_params.latent_dim"],
-                cross_dim_head = self.config["model_params.cross_dim_head"],
-                latent_dim_head = self.config["model_params.latent_dim_head"],
-                cross_heads = self.config["model_params.cross_heads"],
-                latent_heads = self.config["model_params.latent_heads"],
-                attn_dropout = self.config["model_params.attn_dropout"],  # non-default
-                ff_dropout = self.config["model_params.ff_dropout"],  # non-default
-                weight_tie_layers = self.config["model_params.weight_tie_layers"],
-                fourier_encode_data = self.config["model_params.fourier_encode_data"],
-                self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
+                num_classes=self.output_dims,
+                num_freq_bands=self.config[f"model_params.{self.dataset}.num_freq_bands"],
+                depth=self.config[f"model_params.{self.dataset}.depth"],
+                max_freq=self.config[f"model_params.{self.dataset}.max_freq"],
+                num_latents = self.config[f"model_params.{self.dataset}.num_latents"],
+                latent_dim = self.config[f"model_params.{self.dataset}.latent_dim"],
+                cross_dim_head = self.config[f"model_params.{self.dataset}.cross_dim_head"],
+                latent_dim_head = self.config[f"model_params.{self.dataset}.latent_dim_head"],
+                cross_heads = self.config[f"model_params.{self.dataset}.cross_heads"],
+                latent_heads = self.config[f"model_params.{self.dataset}.latent_heads"],
+                attn_dropout = self.config[f"model_params.{self.dataset}.attn_dropout"],
+                ff_dropout = self.config[f"model_params.{self.dataset}.ff_dropout"],
+                weight_tie_layers = self.config[f"model_params.{self.dataset}.weight_tie_layers"],
+                fourier_encode_data = self.config[f"model_params.{self.dataset}.fourier_encode_data"],
+                self_per_cross_attn = self.config[f"model_params.{self.dataset}.self_per_cross_attn"],
                 final_classifier_head = True
             )
             model.float()
             model.to(self.device)
             # summary(model, input_size=[feat[0].shape[1:], feat[1].shape[1:]])
 
-        elif self.config.model == "healnet_early":
-            modalities = 1 # same model just single modality
-            input_channels = [feat[0].shape[2]]
-            input_axes = [1]
-            model = HealNet(
-                modalities=modalities,
-                input_channels=input_channels, # number of features as input channels
-                input_axes=input_axes, # second axis (b n_feats c)
-                num_freq_bands=self.config["model_params.num_freq_bands"],
-                depth=self.config["model_params.depth"],
-                max_freq=self.config["model_params.max_freq"],
-                num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
-                num_latents = self.config["model_params.num_latents"],
-                latent_dim = self.config["model_params.latent_dim"],
-                cross_dim_head = self.config["model_params.cross_dim_head"],
-                latent_dim_head = self.config["model_params.latent_dim_head"],
-                cross_heads = self.config["model_params.cross_heads"],
-                latent_heads = self.config["model_params.latent_heads"],
-                attn_dropout = self.config["model_params.attn_dropout"],  # non-default
-                ff_dropout = self.config["model_params.ff_dropout"],  # non-default
-                weight_tie_layers = self.config["model_params.weight_tie_layers"],
-                fourier_encode_data = self.config["model_params.fourier_encode_data"],
-                self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
-                final_classifier_head = True
-            )
-            model.float()
-            model.to(self.device)
+        # elif self.config.model == "healnet_early":
+        #     modalities = 1 # same model just single modality
+        #     input_channels = [feat[0].shape[2]]
+        #     input_axes = [1]
+        #     model = HealNet(
+        #         modalities=modalities,
+        #         input_channels=input_channels, # number of features as input channels
+        #         input_axes=input_axes, # second axis (b n_feats c)
+        #         num_freq_bands=self.config["model_params.num_freq_bands"],
+        #         depth=self.config["model_params.depth"],
+        #         max_freq=self.config["model_params.max_freq"],
+        #         num_classes=self.output_dims, # survival analysis expecting n_bins as output dims
+        #         num_latents = self.config["model_params.num_latents"],
+        #         latent_dim = self.config["model_params.latent_dim"],
+        #         cross_dim_head = self.config["model_params.cross_dim_head"],
+        #         latent_dim_head = self.config["model_params.latent_dim_head"],
+        #         cross_heads = self.config["model_params.cross_heads"],
+        #         latent_heads = self.config["model_params.latent_heads"],
+        #         attn_dropout = self.config["model_params.attn_dropout"],  # non-default
+        #         ff_dropout = self.config["model_params.ff_dropout"],  # non-default
+        #         weight_tie_layers = self.config["model_params.weight_tie_layers"],
+        #         fourier_encode_data = self.config["model_params.fourier_encode_data"],
+        #         self_per_cross_attn = self.config["model_params.self_per_cross_attn"],
+        #         final_classifier_head = True
+        #     )
+        #     model.float()
+        #     model.to(self.device)
 
         elif self.config.model == "fcnn":
             model = RegularizedFCNN(output_dim=self.output_dims)
@@ -465,8 +478,8 @@ class Pipeline:
                     loss_fn = CoxPHSurvLoss()
                     loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
-
-                reg_loss = calc_reg_loss(model, self.config["optimizer.l1"], self.config.model)
+                dataset = self.config.dataset
+                reg_loss = calc_reg_loss(model, self.config[f"model_params.{self.dataset}.l1"], self.config.model)
 
                 # log risk, censorship and event time for concordance index
                 risk_scores.append(risk)
@@ -547,7 +560,7 @@ class Pipeline:
                 loss_fn = CoxPHSurvLoss()
                 loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
-            reg_loss = calc_reg_loss(model, self.config["optimizer.l1"], self.config.model)
+            reg_loss = calc_reg_loss(model, self.config[f"model_params.{self.dataset}.l1"], self.config.model)
 
             # log risk, censorship and event time for concordance index
             risk_scores.append(risk)
