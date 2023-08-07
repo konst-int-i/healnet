@@ -23,6 +23,6 @@ dependencies:
       - lifelines==0.27.7
       - torchsummary==1.5.1
       - torch_optimizer==0.3.0
-      - wandb==0.13.11
+      - wandb==0.15.8
       - openslide-python==1.2.0
       - opencv-python==4.7.*
