@@ -36,7 +36,7 @@ train_loop:
   checkpoint_interval: 5
   eval_interval: 1
   batch_size: 1
-  epochs: 5
+  epochs: 100
   # early stopping
   patience: 7
   delta: 0.001
@@ -46,3 +46,6 @@ optimizer:
   lr: 0.002
   momentum: 0.92
   weight_decay: 0.00026 # or None
+
+
+# model_params are specified in config/best_hyperparams.yml
