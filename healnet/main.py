@@ -115,7 +115,7 @@ class Pipeline:
             model = self.make_model(train_data)
             wandb.watch(model)
             if self.config.task == "survival":
-                _, train_c_index, _, val_c_index = self.train_survival_fold(model, train_data, test_data, fold)
+                _, train_c_index, _, val_c_index = self.train_survival_fold(model, train_data, test_data, fold=fold)
                 train_c_indeces.append(train_c_index)
                 val_c_indeces.append(val_c_index)
             elif self.config.task == "classification":
@@ -387,8 +387,7 @@ class Pipeline:
                             model: nn.Module,
                             train_data: DataLoader,
                             test_data: DataLoader,
-                            fold: int = 1,
-                            # loss_reg: float = 0.0,
+                            fold: int,
                             gc: int = 16,
                             **kwargs):
         """
@@ -485,7 +484,7 @@ class Pipeline:
             print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, train_c_index))
 
             # evaluate at interval or if final epoch
-            if epoch % self.config["train_loop.eval_interval"] == 0 or epoch == self.config["train_loop.epochs"] - 1:
+            if epoch % self.config["train_loop.eval_interval"] == 0:
                 val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data)
                 wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch)
 
@@ -565,10 +564,7 @@ class Pipeline:
 
         # calculate epoch-level concordance index
         val_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
-        # f1 = f1_score(labels, predictions, average="macro")
         print('Epoch: {}, val_loss: {:.4f}, val_c_index: {:.4f}'.format(epoch, val_loss, val_c_index))
-        # print(f"Epoch: {epoch}, val_loss: {np.round(val_loss.cpu().detach().numpy(), 5)}, "
-        #       f"val_c_index: {np.round(c_index, 5)}")
 
         model.train()
         return val_loss, val_c_index
@@ -598,28 +594,32 @@ if __name__ == "__main__":
              "model": ["healnet", "fcnn", "healnet_early"],
              })
         # grid = ParameterGrid(
-        #     {"dataset": ["blca"],
-        #      "sources": [["omic"], ["omic", "slides"]],
+        #     {"dataset": ["blca", "brca"],
+        #      "sources": [["omic"]],
         #      "model": ["healnet"],
         #      })
-        folds = 3
+        n_folds = 3
 
         for iteration, params in enumerate(grid):
             dataset, sources, model = params["dataset"], params["sources"], params["model"]
             print(f"Run plan iteration {iteration+1}/{len(grid)}")
             print(f"Dataset: {dataset}, Sources: {sources}, Model: {model}")
+
+            # skip healnet_early on single modality (same as regular healnet)
+            if model == "healnet_early" and len(sources) == 1:
+                continue
             config["dataset"] = dataset
             config["sources"] = sources
             config["model"] = model
-            config["n_folds"] = folds
+            config["n_folds"] = n_folds
             pipeline = Pipeline(
                     config=config,
                     args=args,
                 )
             pipeline.main()
 
-        print(f"Successfully finished runplan"
-              f"{print(list(grid))}")
+        print(f"Successfully finished runplan: "
+              f"{list(grid)}")
 
     else: # single_run or sweep
         pipeline = Pipeline(
