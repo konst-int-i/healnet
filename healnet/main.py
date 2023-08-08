@@ -19,7 +19,7 @@ from tqdm import tqdm
 from healnet.train import majority_classifier_acc
 from healnet.utils import EarlyStopping, calc_reg_loss
 from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from healnet.baselines import RegularizedFCNN, MMPrognosis, MCAT
+from healnet.baselines import RegularizedFCNN, MMPrognosis, MCAT, SNN
 import numpy as np
 from torchsummary import summary
 import torch_optimizer as t_optim
@@ -262,11 +262,17 @@ class Pipeline:
             model.to(self.device)
 
         elif self.config.model == "mcat":
-            model = MCAT(
-                n_classes=self.output_dims,
-                omic_shape=feat[0].shape[1:],
-                wsi_shape=feat[1].shape[1:]
-            )
+            if len(self.config["sources"]) == 2:
+                model = MCAT(
+                    n_classes=self.output_dims,
+                    omic_shape=feat[0].shape[1:],
+                    wsi_shape=feat[1].shape[1:]
+                )
+            elif self.config["sources"][0] == "omic":
+                model = SNN(
+                    n_classes=self.output_dims,
+                    input_dim=feat[0].shape[1]
+                )
             model.float()
             model.to(self.device)
 
@@ -471,7 +477,7 @@ class Pipeline:
                     loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
                 dataset = self.config.dataset
-                reg_loss = calc_reg_loss(model, self.config[f"model_params.l1"], self.config.model)
+                reg_loss = calc_reg_loss(model, self.config[f"model_params.l1"], self.config.model, self.config.sources)
 
                 # log risk, censorship and event time for concordance index
                 risk_scores.append(risk)
@@ -552,7 +558,7 @@ class Pipeline:
                 loss_fn = CoxPHSurvLoss()
                 loss_fn(hazards=hazards, survival=survival, censorship=censorship)
 
-            reg_loss = calc_reg_loss(model, self.config[f"model_params.l1"], self.config.model)
+            reg_loss = calc_reg_loss(model, self.config[f"model_params.l1"], self.config.model, self.config.sources)
 
             # log risk, censorship and event time for concordance index
             risk_scores.append(risk)

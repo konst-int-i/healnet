@@ -1,7 +1,9 @@
+from typing import *
 
-
-def calc_reg_loss(model, l1: float, model_topo: str):
+def calc_reg_loss(model, l1: float, model_topo: str, sources: List[str]):
     if model_topo == "fcnn": # don't regularise FCNN
+        reg_loss = 0
+    elif model_topo == "mcat" and sources == ["omic"]:
         reg_loss = 0
     else:
         l1_norm = sum(p.abs().sum() for p in model.parameters())
