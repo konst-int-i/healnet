@@ -19,7 +19,7 @@ from tqdm import tqdm
 from healnet.train import majority_classifier_acc
 from healnet.utils import EarlyStopping, calc_reg_loss
 from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from healnet.baselines import RegularizedFCNN, MMPrognosis,
+from healnet.baselines import RegularizedFCNN, MMPrognosis
 import numpy as np
 from torchsummary import summary
 import torch_optimizer as t_optim
