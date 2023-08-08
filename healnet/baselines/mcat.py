@@ -119,7 +119,7 @@ class MCAT(nn.Module):
         A_path = torch.transpose(A_path, 1, 0)
         A_path = A_path.squeeze(-1)
         h_path = h_path.squeeze(0)
-        h_path = torch.mm(F.softmax(A_path.t(), dim=1) , h_path)
+        # h_path = torch.mm(F.softmax(A_path.t(), dim=1) , h_path) # keep batch dimension
         h_path = self.path_rho(h_path).squeeze()
 
         ### Omic
@@ -128,13 +128,13 @@ class MCAT(nn.Module):
         A_omic = torch.transpose(A_omic, 1, 0)
         A_omic = A_omic.squeeze(-1)
         h_omic = h_omic.squeeze(0)
-        h_omic = torch.mm(F.softmax(A_omic.t(), dim=1), h_omic)
+        # h_omic = torch.mm(F.softmax(A_omic.t(), dim=1), h_omic)
         h_omic = self.omic_rho(h_omic).squeeze()
 
         if self.fusion == 'bilinear':
             h = self.mm(h_path.unsqueeze(dim=0), h_omic.unsqueeze(dim=0)).squeeze()
         elif self.fusion == 'concat':
-            h = self.mm(torch.cat([h_path, h_omic], axis=0))
+            h = self.mm(torch.cat([h_path, h_omic], axis=1))
 
         ### Survival Layer
         logits = self.classifier(h)

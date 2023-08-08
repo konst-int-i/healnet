@@ -5,10 +5,10 @@ log_path: /home/kh701/pycharm/x-perceiver/logs
 seed: 1
 hyperparams: config/best_hyperparams.yml
 
-dataset: kirp #  [blca, brca, ucec, kirp]
-model: healnet # [fcnn, healnet, healnet_early, mm_prognosis]
+dataset: blca #  [blca, brca, ucec, kirp]
+model: mcat # [fcnn, healnet, healnet_early, mcat, mm_prognosis]
 
-n_folds: 5
+n_folds: 3
 
 wandb: True
 
