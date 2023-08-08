@@ -5,10 +5,10 @@ log_path: /home/kh701/pycharm/x-perceiver/logs
 seed: 1
 hyperparams: config/best_hyperparams.yml
 
-dataset: brca #  [blca, brca, ucec, kirp]
-model: healnet # [fcnn, healnet, healnet_early]
+dataset: kirp #  [blca, brca, ucec, kirp]
+model: healnet # [fcnn, healnet, healnet_early, mm_prognosis]
 
-n_folds: 1
+n_folds: 5
 
 wandb: True
 
@@ -35,8 +35,8 @@ survival: # all parameters related to survival task
 train_loop:
   checkpoint_interval: 5
   eval_interval: 1
-  batch_size: 1
-  epochs: 100
+  batch_size: 2
+  epochs: 50
   # early stopping
   patience: 7
   delta: 0.001
