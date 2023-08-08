@@ -241,7 +241,7 @@ class MMPrognosis(TrainableModel):
         # self.fcg = nn.Linear(60483, embedding_dims)
         self.highway = Highway(256, 10, f=F.relu)
         self.fc2 = nn.Linear(self.embedding_dims, self.output_dims)
-        self.fcd = nn.Linear(self.embedding_dims, self.output_dims) # TODO: 4 out features
+        self.fcd = nn.Linear(self.embedding_dims, self.output_dims)
         self.bn1 = nn.BatchNorm1d(self.embedding_dims)
         self.bn2 = nn.BatchNorm1d(self.embedding_dims)
         # self.bn3 = nn.BatchNorm1d(1, affine=True)
