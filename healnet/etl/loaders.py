@@ -104,12 +104,18 @@ class TCGADataset(Dataset):
         y_disc = self.y_disc[index]
         censorship = self.censorship[index]
         event_time = self.survival_months[index]
+
+
         if len(self.sources) == 1 and self.sources[0] == "omic":
             omic_tensor = self.omic_tensor[index]
             return [omic_tensor], censorship, event_time, y_disc
 
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
+
+            # if self.config.model == "mm_prognosis": # raw WSI
+            #     slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
+            #     return [slide_tensor], censorship, event_time, y_disc
 
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
