@@ -19,7 +19,7 @@ from tqdm import tqdm
 from healnet.train import majority_classifier_acc
 from healnet.utils import EarlyStopping, calc_reg_loss
 from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from healnet.baselines import RegularizedFCNN, MMPrognosis, MCAT, SNN
+from healnet.baselines import RegularizedFCNN, MMPrognosis, MCAT, SNN, MILAttentionNet
 import numpy as np
 from torchsummary import summary
 import torch_optimizer as t_optim
@@ -184,6 +184,7 @@ class Pipeline:
 
     def _calc_class_weights(self, train):
 
+        # if self.config.model in ["healnet", "healnet_early"]:
         if self.config[f"model_params.class_weights"] in ["inverse", "inverse_root"]:
             train_targets = np.array(train.dataset.y_disc)[train.indices]
             _, counts = np.unique(train_targets, return_counts=True)
@@ -272,6 +273,11 @@ class Pipeline:
                 model = SNN(
                     n_classes=self.output_dims,
                     input_dim=feat[0].shape[1]
+                )
+            elif self.config["sources"][0] == "slides":
+                model = MILAttentionNet(
+                    input_dim=feat[0].shape[1:],
+                    n_classes=self.output_dims
                 )
             model.float()
             model.to(self.device)
