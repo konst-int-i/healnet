@@ -19,7 +19,7 @@ from tqdm import tqdm
 from healnet.train import majority_classifier_acc
 from healnet.utils import EarlyStopping, calc_reg_loss
 from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from healnet.baselines import RegularizedFCNN
+from healnet.baselines import RegularizedFCNN, MMPrognosis
 import numpy as np
 from torchsummary import summary
 import torch_optimizer as t_optim
@@ -95,7 +95,7 @@ class Pipeline:
         valid_tasks = ["survival", "classification"]
         assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
 
-        valid_models = ["healnet", "fcnn", "healnet_early"]
+        valid_models = ["healnet", "fcnn", "healnet_early", "mm_prognosis"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
         valid_class_weights = ["inverse", "inverse_root", None]
@@ -249,6 +249,20 @@ class Pipeline:
         elif self.config.model == "fcnn":
             model = RegularizedFCNN(output_dim=self.output_dims)
             model.to(self.device)
+
+        elif self.config.model == "mm_prognosis":
+            if len(self.config["sources"]) == 1:
+                input_dim = feat[0].shape[1]
+                # input_dim = feat[0].shape[2] + feat[1].shape[2]
+
+            model = MMPrognosis(sources=self.sources,
+                                output_dims=self.output_dims,
+                                config=self.config
+                                )
+            model.float()
+            model.to(self.device)
+
+
         return model
 
 
@@ -402,9 +416,9 @@ class Pipeline:
                                                   max_lr=self.config["optimizer.max_lr"],
                                                   epochs=self.config["train_loop.epochs"],
                                                   steps_per_epoch=len(train_data))
-        early_stopping = EarlyStopping(patience=self.config["train_loop.patience"],
-                                       delta=self.config["train_loop.delta"],
-                                       maximize=True) # val_c_index as stopping criterion
+        # early_stopping = EarlyStopping(patience=self.config["train_loop.patience"],
+        #                                delta=self.config["train_loop.delta"],
+        #                                maximize=True) # val_c_index as stopping criterion
 
         model.train()
 
@@ -477,16 +491,14 @@ class Pipeline:
             wandb.log({f"fold_{fold}_train_loss": train_loss, f"fold_{fold}_train_c_index": train_c_index}, step=epoch)
             print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, train_c_index))
 
-
-
             # evaluate at interval or if final epoch
             # if epoch % self.config["train_loop.eval_interval"] == 0 or epoch == self.config["train_loop.epochs"]:
             val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data)
             wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch)
 
-            if early_stopping(val_c_index):
-                print(f"Early stopping at epoch {epoch}")
-                break
+            # if early_stopping(val_c_index):
+            #     print(f"Early stopping at epoch {epoch}")
+            #     break
 
         # return values of final epoch
         return train_loss, train_c_index, val_loss, val_c_index
@@ -624,7 +636,7 @@ if __name__ == "__main__":
         grid = ParameterGrid(
             {"dataset": datasets,
              "sources": [["omic"], ["slides"], ["omic", "slides"]],
-             "model": ["healnet", "fcnn", "healnet_early"],
+             "model": ["healnet", "healnet_early"],
              })
 
         n_folds = 3
