@@ -19,7 +19,7 @@ from tqdm import tqdm
 from healnet.train import majority_classifier_acc
 from healnet.utils import EarlyStopping, calc_reg_loss
 from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from healnet.baselines import RegularizedFCNN, MMPrognosis
+from healnet.baselines import RegularizedFCNN, MMPrognosis,
 import numpy as np
 from torchsummary import summary
 import torch_optimizer as t_optim
@@ -95,7 +95,7 @@ class Pipeline:
         valid_tasks = ["survival", "classification"]
         assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
 
-        valid_models = ["healnet", "fcnn", "healnet_early", "mm_prognosis"]
+        valid_models = ["healnet", "fcnn", "healnet_early", "mcat", "mm_prognosis"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
         valid_class_weights = ["inverse", "inverse_root", None]
@@ -254,6 +254,9 @@ class Pipeline:
             if len(self.config["sources"]) == 1:
                 input_dim = feat[0].shape[1]
                 # input_dim = feat[0].shape[2] + feat[1].shape[2]
+
+        elif self.config.model == "mcat":
+
 
             model = MMPrognosis(sources=self.sources,
                                 output_dims=self.output_dims,
@@ -578,26 +581,26 @@ class Pipeline:
         return val_loss, val_c_index
 
 
-def run_plan_iter(args):
-    iteration, params, config, cl_args = args
-    n_folds = 3
-    dataset, sources, model = params["dataset"], params["sources"], params["model"]
-    # print(f"Run plan iteration {iteration+1}/{len(grid)}")
-    print(f"New run plan iteration")
-    print(f"Dataset: {dataset}, Sources: {sources}, Model: {model}")
-
-    # skip healnet_early on single modality (same as regular healnet)
-    if model == "healnet_early" and len(sources) == 1:
-        return None
-    config["dataset"] = dataset
-    config["sources"] = sources
-    config["model"] = model
-    config["n_folds"] = n_folds
-    pipeline = Pipeline(
-            config=config,
-            args=cl_args,
-        )
-    pipeline.main()
+# def run_plan_iter(args):
+#     iteration, params, config, cl_args = args
+#     n_folds = 3
+#     dataset, sources, model = params["dataset"], params["sources"], params["model"]
+#     # print(f"Run plan iteration {iteration+1}/{len(grid)}")
+#     print(f"New run plan iteration")
+#     print(f"Dataset: {dataset}, Sources: {sources}, Model: {model}")
+#
+#     # skip healnet_early on single modality (same as regular healnet)
+#     if model == "healnet_early" and len(sources) == 1:
+#         return None
+#     config["dataset"] = dataset
+#     config["sources"] = sources
+#     config["model"] = model
+#     config["n_folds"] = n_folds
+#     pipeline = Pipeline(
+#             config=config,
+#             args=cl_args,
+#         )
+#     pipeline.main()
 
 
 
@@ -639,7 +642,7 @@ if __name__ == "__main__":
              "model": ["healnet", "healnet_early"],
              })
 
-        n_folds = 3
+        n_folds = 5
 
         for iteration, params in enumerate(grid):
             dataset, sources, model = params["dataset"], params["sources"], params["model"]
