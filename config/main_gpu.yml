@@ -38,8 +38,7 @@ train_loop:
   batch_size: 4
   epochs: 100
   # early stopping
-  patience: 5
-  delta: 0.001
+  patience: 7
 
 optimizer:
   max_lr: 0.005
