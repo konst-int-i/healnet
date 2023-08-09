@@ -115,29 +115,28 @@ class Pipeline:
                 if key in self.config.keys():
                     self.config[key] = value
 
-        train_c_indeces, val_c_indeces = [], []
+        train_c_indeces, val_c_indeces, test_c_indeces = [], [], []
         for fold in range(1, self.config["n_folds"]+1):
             print(f"*****FOLD {fold}*****")
             # fix random seeds for reproducibility
             torch.manual_seed(fold)
             np.random.seed(fold)
 
-            train_data, test_data = self.load_data(fold=fold)
+            train_data, val_data, test_data = self.load_data(fold=fold)
             model = self.make_model(train_data)
             wandb.watch(model)
-            if self.config.task == "survival":
-                # with torch.autograd.profiler.profile(use_cuda=False) as prof:
-                _, train_c_index, _, val_c_index = self.train_survival_fold(model, train_data, test_data, fold=fold)
-                train_c_indeces.append(train_c_index)
-                val_c_indeces.append(val_c_index)
-                # print(prof)
-            elif self.config.task == "classification":
-                self.train_clf(model, train_data, test_data)
+            _, train_c_index, _, val_c_index, _, test_c_index = self.train_survival_fold(model, train_data, val_data, test_data, fold=fold)
+            train_c_indeces.append(train_c_index)
+            val_c_indeces.append(val_c_index)
+            test_c_indeces.append(test_c_index)
         # log average and standard deviation across folds
+
         wandb.log({"mean_train_c_index": np.mean(train_c_indeces),
                    "mean_val_c_index": np.mean(val_c_indeces),
                    "std_train_c_index": np.std(train_c_indeces),
-                    "std_val_c_index": np.std(val_c_indeces)})
+                    "std_val_c_index": np.std(val_c_indeces),
+                    "mean_test_c_index": np.mean(test_c_indeces),
+                    "std_test_c_index": np.std(test_c_indeces)})
 
         wandb.finish()
 
@@ -149,14 +148,19 @@ class Pipeline:
                            sources=self.sources,
                            n_bins=self.output_dims,
                            )
+        train_size = 0.7
+        test_size = 0.15
+        val_size = 0.15
 
-        train_size = int(0.7 * len(data))
-        test_size = int(len(data) - train_size/2)
-        val_size = int(len(data) - train_size - test_size)
-
-        print(f"Train samples: {train_size}, Test samples: {test_size}")
+        print(f"Train samples: {int(train_size*len(data))}, Val samples: {int(val_size * len(data))}, "
+              f"Test samples: {int(test_size * len(data))}")
         train, test, val = torch.utils.data.random_split(data, [train_size, test_size, val_size])
 
+        target_distribution = lambda idx, data: dict(np.round(data.omic_df.iloc[idx]["y_disc"].value_counts().sort_values() / len(idx), 2))
+
+        print(f"Train distribution: {target_distribution(train.indices, data)}")
+        print(f"Val distribution: {target_distribution(val.indices, data)}")
+        print(f"Test distribution: {target_distribution(test.indices, data)}")
 
         # calculate class weights
         if self.config[f"model_params.class_weights"] == "None":
@@ -173,6 +177,14 @@ class Pipeline:
                                 persistent_workers=True,
                                 prefetch_factor=16
                                 )
+        val_data = DataLoader(val,
+                             batch_size=self.config["train_loop.batch_size"],
+                             shuffle=False,
+                             num_workers=multiprocessing.cpu_count(),
+                             pin_memory=True,
+                             multiprocessing_context=MP_CONTEXT,
+                             persistent_workers=True,
+                             prefetch_factor=16)
 
         test_data = DataLoader(test,
                                batch_size=self.config["train_loop.batch_size"],
@@ -183,16 +195,10 @@ class Pipeline:
                                persistent_workers=True,
                                prefetch_factor=16)
 
-        val_set = DataLoader(val,
-                             batch_size=self.config["train_loop.batch_size"],
-                             shuffle=False,
-                             num_workers=multiprocessing.cpu_count(),
-                             pin_memory=True,
-                             multiprocessing_context=MP_CONTEXT,
-                             persistent_workers=True,
-                             prefetch_factor=16)
 
-        return train_data, test_data, val_set
+
+
+        return train_data, val_data, test_data
 
     def _calc_class_weights(self, train):
 
@@ -301,6 +307,7 @@ class Pipeline:
                             model: nn.Module,
                             train_data: DataLoader,
                             test_data: DataLoader,
+                            val_data: DataLoader,
                             fold: int,
                             gc: int = 16,
                             **kwargs):
@@ -397,17 +404,24 @@ class Pipeline:
             wandb.log({f"fold_{fold}_train_loss": train_loss, f"fold_{fold}_train_c_index": train_c_index}, step=epoch)
             print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, train_c_index))
 
+
+
             # evaluate at interval or if final epoch
             # if epoch % self.config["train_loop.eval_interval"] == 0 or epoch == self.config["train_loop.epochs"]:
-            val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, test_data)
+            val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, val_data)
+            print('Epoch: {}, val_loss: {:.4f}, val_c_index: {:.4f}'.format(epoch, val_loss, val_c_index))
             wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch)
 
             # if early_stopping(val_c_index):
             #     print(f"Early stopping at epoch {epoch}")
             #     break
 
+        # once stopped and best model is loaded, evaluate on test set
+        test_loss, test_c_index = self.evaluate_survival_epoch(epoch, model, test_data)
+        wandb.log({f"fold_{fold}_test_loss": test_loss, f"fold_{fold}_test_c_index": test_c_index}, step=epoch)
+
         # return values of final epoch
-        return train_loss, train_c_index, val_loss, val_c_index
+        return train_loss, train_c_index, val_loss, val_c_index, test_loss, test_c_index
 
             # checkpoint model after epoch
             # if epoch % self.config["train_loop.checkpoint_interval"] == 0:
@@ -478,7 +492,6 @@ class Pipeline:
 
         # calculate epoch-level concordance index
         val_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
-        print('Epoch: {}, val_loss: {:.4f}, val_c_index: {:.4f}'.format(epoch, val_loss, val_c_index))
 
         model.train()
         return val_loss, val_c_index

@@ -6,7 +6,7 @@ seed: 1
 hyperparams: config/best_hyperparams.yml
 
 dataset: blca #  [blca, brca, ucec, kirp]
-model: mcat # [fcnn, healnet, healnet_early, mcat, mm_prognosis]
+model: healnet # [fcnn, healnet, healnet_early, mcat]
 
 n_folds: 3
 
@@ -24,8 +24,8 @@ data:
 
 task: survival # [survival, classification]
 sources:
-#  - omic
-  - slides
+  - omic
+#  - slides
 
 
 survival: # all parameters related to survival task
@@ -35,7 +35,7 @@ survival: # all parameters related to survival task
 train_loop:
   checkpoint_interval: 5
   eval_interval: 1
-  batch_size: 2
+  batch_size: 4
   epochs: 50
   # early stopping
   patience: 7

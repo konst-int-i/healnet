@@ -214,8 +214,7 @@ class TCGADataset(Dataset):
         print(f"Slide resize dimensions: w: {self.wsi_width}, h: {self.wsi_height}")
         print(f"Sources selected: {self.sources}")
         print(f"Censored share: {np.round(len(self.omic_df[self.omic_df['censorship'] == 1])/len(self.omic_df), 3)}")
-        print(f"Survival_bin_sizes: \n {self.omic_df['y_disc'].value_counts()}")
-        # print(f"Target column: {self.target_col}")
+        print(f"Survival_bin_sizes: {dict(self.omic_df['y_disc'].value_counts().sort_values())}")
 
         if full_detail:
             pprint(dict(self.sample_slide.properties))
