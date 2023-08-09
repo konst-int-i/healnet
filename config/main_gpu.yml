@@ -8,7 +8,7 @@ hyperparams: config/best_hyperparams.yml
 dataset: blca #  [blca, brca, ucec, kirp]
 model: healnet # [fcnn, healnet, healnet_early, mcat]
 
-n_folds: 3
+n_folds: 5
 
 wandb: True
 
@@ -18,27 +18,27 @@ data:
   resize_height: 1024 # if resize is True
   resize_width: 1024 # if resize is True
   patch_size: 256 # don't changed if used for pre-processing
-  wsi_level: 2 # WSI resolution level (if available)
+#  wsi_level: 2 # WSI resolution level (if available)
   prefetch: False
 
 
 task: survival # [survival, classification]
 sources:
-  - omic
-#  - slides
+#  - omic
+  - slides
 
 
 survival: # all parameters related to survival task
   loss: nll # valid: nll, ce_survival, cox
-  subset: uncensored # subset used to calculate survival bin cutoffs
+  subset: uncensored # subset used to calculate survival bin cutoffs, valid: all, censored, uncensored
 
 train_loop:
   checkpoint_interval: 5
   eval_interval: 1
   batch_size: 4
-  epochs: 50
+  epochs: 100
   # early stopping
-  patience: 7
+  patience: 5
   delta: 0.001
 
 optimizer:
