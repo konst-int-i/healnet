@@ -17,8 +17,9 @@ from argparse import Namespace
 import yaml
 from tqdm import tqdm
 from healnet.train import majority_classifier_acc
-from healnet.utils import EarlyStopping, calc_reg_loss
+from healnet.utils import EarlyStopping, calc_reg_loss, pickle_obj, unpickle
 from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
+from healnet.models.explainer import Explainer
 from healnet.baselines import RegularizedFCNN, MMPrognosis, MCAT, SNN, MILAttentionNet
 import numpy as np
 from torchsummary import summary
@@ -50,6 +51,10 @@ class Pipeline:
         self.wandb_name = wandb_name
         self.output_dims = int(self.config[f"model_params.output_dims"])
         self.sources = self.config.sources
+        # create log directory for run
+        # date
+        self.local_run_id = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
+        self.log_dir = Path(self.config.log_path).joinpath(f"{self.dataset}_{self.local_run_id}")
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.device == "cuda":
@@ -115,7 +120,12 @@ class Pipeline:
                 if key in self.config.keys():
                     self.config[key] = value
 
+
+
         train_c_indeces, val_c_indeces, test_c_indeces = [], [], []
+        # test_dataloaders = []
+        test_data_indices = []
+        models = []
         for fold in range(1, self.config["n_folds"]+1):
             print(f"*****FOLD {fold}*****")
             # fix random seeds for reproducibility
@@ -123,20 +133,36 @@ class Pipeline:
             np.random.seed(fold)
 
             train_data, val_data, test_data = self.load_data(fold=fold)
+            # get test data indices
+            test_data_indices.append(test_data.dataset.indices)
+            # test_dataloaders.append(test_data)
             model = self.make_model(train_data)
             wandb.watch(model)
-            _, train_c_index, _, val_c_index, _, test_c_index = self.train_survival_fold(model, train_data, val_data, test_data, fold=fold)
+            model, _, train_c_index, _, val_c_index, _, test_c_index = self.train_survival_fold(model, train_data, val_data, test_data, fold=fold)
             train_c_indeces.append(train_c_index)
             val_c_indeces.append(val_c_index)
             test_c_indeces.append(test_c_index)
-        # log average and standard deviation across folds
+            models.append(model)
 
+        # log average and standard deviation across folds
         wandb.log({"mean_train_c_index": np.mean(train_c_indeces),
                    "mean_val_c_index": np.mean(val_c_indeces),
                    "std_train_c_index": np.std(train_c_indeces),
                     "std_val_c_index": np.std(val_c_indeces),
                     "mean_test_c_index": np.mean(test_c_indeces),
                     "std_test_c_index": np.std(test_c_indeces)})
+
+
+        best_fold = np.argmax(test_c_indeces)
+        best_model = models[best_fold]
+
+        if self.config.explainer:
+            self.log_dir.mkdir(parents=True, exist_ok=True)
+            torch.save(best_model.state_dict(), self.log_dir.joinpath("best_model.pt"))
+            # save config
+            pickle_obj(self.config, self.log_dir.joinpath("config.pkl"))
+            # save test data indices
+            pickle_obj(test_data_indices[best_fold], self.log_dir.joinpath("test_data_indices.pkl"))
 
         wandb.finish()
 
@@ -442,7 +468,7 @@ class Pipeline:
         wandb.log({f"fold_{fold}_test_loss": test_loss, f"fold_{fold}_test_c_index": test_c_index}, step=epoch if fold == 1 else None)
 
         # return values of final epoch
-        return train_loss, train_c_index, val_loss, val_c_index, test_loss, test_c_index
+        return model, train_loss, train_c_index, val_loss, val_c_index, test_loss, test_c_index
 
             # checkpoint model after epoch
             # if epoch % self.config["train_loop.checkpoint_interval"] == 0:
@@ -593,11 +619,15 @@ if __name__ == "__main__":
             config["sources"] = sources
             config["model"] = model
             config["n_folds"] = n_folds
-            pipeline = Pipeline(
-                    config=config,
-                    args=args,
-                )
-            pipeline.main()
+            try:
+                pipeline = Pipeline(
+                        config=config,
+                        args=args,
+                    )
+                pipeline.main()
+            except Exception as e:
+                print(f"Exception: {e}")
+                continue
 
         print(f"Successfully finished runplan: "
               f"{list(grid)}")
