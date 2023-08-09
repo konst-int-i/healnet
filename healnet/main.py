@@ -601,8 +601,7 @@ if __name__ == "__main__":
         grid = ParameterGrid(
             {"dataset": datasets,
              "sources": [["omic"], ["slides"], ["omic", "slides"]],
-             "model": ["mcat"]
-             # "model": ["healnet", "healnet_early"],
+             "model": ["mcat", "healnet_early"]
              })
 
         n_folds = 5
