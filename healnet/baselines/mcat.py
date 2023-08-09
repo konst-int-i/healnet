@@ -265,25 +265,9 @@ class MILAttentionNet(nn.Module):
         h_path = (A_transposed * h_path).sum(1)
         h_path = self.rho(h_path).squeeze()
 
-        # if self.fusion is not None:
-        #     x_omic = kwargs['x_omic']
-        #     h_omic = self.fc_omic(x_omic)
-        #     if self.fusion == 'bilinear':
-        #         h = self.mm(h_path.unsqueeze(dim=0), h_omic.unsqueeze(dim=0)).squeeze()
-        #     elif self.fusion == 'concat':
-        #         h = self.mm(torch.cat([h_path, h_omic], axis=0))
-        # else:
-        #     h = h_path # [256] vector
-
         logits  = self.classifier(h_path)
 
         return logits
-        # # logits needs to be a [1 x 4] vector
-        # Y_hat = torch.topk(logits, 1, dim = 1)[1]
-        # hazards = torch.sigmoid(logits)
-        # S = torch.cumprod(1 - hazards, dim=1)
-        #
-        # return hazards, S, Y_hat, None, None
 
 
 
