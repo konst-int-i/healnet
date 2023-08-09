@@ -1,4 +1,5 @@
 from typing import *
+import torch
 
 def calc_reg_loss(model, l1: float, model_topo: str, sources: List[str]):
     total_params = sum(p.numel() for p in model.parameters())
@@ -13,32 +14,99 @@ def calc_reg_loss(model, l1: float, model_topo: str, sources: List[str]):
         reg_loss = float(l1) * normalized_l1
     return reg_loss
 
-class EarlyStopping:
-    def __init__(self, patience=5, delta=0, maximize=True):
-        """
 
-        Args:
-            patience: How long to wait after last time validation metric improved.
-            delta: Minimum change in the monitored quantity to qualify as an improvement.
-            maximize: Indicates if the objective is to maximize the monitored metric.
+class EarlyStopping:
+    def __init__(self, patience=5, verbose=False, mode='min'):
         """
+        Constructor for early stopping.
+
+        Parameters:
+        - patience (int): How many epochs to wait before stopping once performance stops improving.
+        - verbose (bool): If True, prints out a message for each validation metric improvement.
+        - mode (str): One of ['min', 'max']. Minimize (e.g., loss) or maximize (e.g., accuracy) the metric.
+        """
+        assert mode in ['min', 'max'], "Mode must be 'min' or 'max'"
         self.patience = patience
-        self.delta = delta
-        self.maximize = maximize
-        self.best_score = None
+        self.verbose = verbose
         self.counter = 0
 
-    def __call__(self, score):
-        stop_training = False
-
-        if self.best_score is None:
-            self.best_score = score
-        elif ((score < self.best_score + self.delta) if self.maximize else (score > self.best_score - self.delta)):
-            self.counter += 1
-            if self.counter >= self.patience:
-                stop_training = True
+        if mode == 'min':
+            self.best_metric = float('inf')
+            self.operator = torch.lt
         else:
-            self.best_score = score
-            self.counter = 0
+            self.best_metric = float('-inf')
+            self.operator = torch.gt
 
-        return stop_training
+        self.best_model_weights = None
+        self.should_stop = False
+
+    def step(self, metric, model):
+        """
+        Check the early stopping conditions.
+
+        Parameters:
+        - metric (float): The latest validation metric (loss, accuracy, etc.).
+        - model (torch.nn.Module): The model being trained.
+
+        Returns:
+        - bool: True if early stopping conditions met, False otherwise.
+        """
+        if self.operator(metric, self.best_metric):
+            if self.verbose:
+                print(f"Validation metric improved from {self.best_metric:.4f} to {metric:.4f}. Saving model weights.")
+            self.best_metric = metric
+            self.counter = 0
+            self.best_model_weights = model.state_dict().copy()
+        else:
+            self.counter += 1
+            if self.verbose:
+                print(f"Validation metric did not improve. Patience: {self.counter}/{self.patience}.")
+            if self.counter >= self.patience:
+                self.should_stop = True
+
+        return self.should_stop
+
+    def load_best_weights(self, model):
+        """
+        Load the best model weights.
+
+        Parameters:
+        - model (torch.nn.Module): The model to which the best weights should be loaded.
+        """
+        if self.verbose:
+            print(f"Loading best model weights with validation metric value: {self.best_metric:.4f}")
+        model.load_state_dict(self.best_model_weights)
+        return model
+
+
+
+
+# class EarlyStopping:
+#     def __init__(self, patience=5, delta=0, maximize=True):
+#         """
+#
+#         Args:
+#             patience: How long to wait after last time validation metric improved.
+#             delta: Minimum change in the monitored quantity to qualify as an improvement.
+#             maximize: Indicates if the objective is to maximize the monitored metric.
+#         """
+#         self.patience = patience
+#         self.delta = delta
+#         self.maximize = maximize
+#         self.best_score = None
+#         self.counter = 0
+#
+#     def __call__(self, score):
+#         stop_training = False
+#
+#         if self.best_score is None:
+#             self.best_score = score
+#         elif ((score < self.best_score + self.delta) if self.maximize else (score > self.best_score - self.delta)):
+#             self.counter += 1
+#             if self.counter >= self.patience:
+#                 stop_training = True
+#         else:
+#             self.best_score = score
+#             self.counter = 0
+#
+#         return stop_training

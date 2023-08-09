@@ -86,7 +86,7 @@ class Pipeline:
         assert self.config["survival.loss"] in valid_survival_losses, f"Invalid survival loss specified. " \
                                                                    f"Valid losses are {valid_survival_losses}"
 
-        valid_datasets = ["blca", "brca", "kirp", "ucec"]
+        valid_datasets = ["blca", "brca", "kirp", "ucec", "hnsc", "paad", "luad", "lusc"]
         assert self.config.dataset in valid_datasets, f"Invalid dataset specified. Valid datasets are {valid_datasets}"
 
         # # check that model parameters are specified
@@ -141,9 +141,23 @@ class Pipeline:
         wandb.finish()
 
     def load_data(self, fold: int = None) -> tuple:
+
+        level_dict = {
+            "blca": 2,
+            "brca": 2,
+            "kirp": 2,
+            "ucec": 2,
+            "hnsc": 1,
+            "paad": 1,
+            "luad": 1,
+            "lusc": 1
+        }
+
+
         data = TCGADataset(self.config["dataset"],
                            self.config,
-                           level=int(self.config["data.wsi_level"]),
+                           level=level_dict[self.config["dataset"]],
+                           # level=int(self.config["data.wsi_level"]),
                            survival_analysis=True,
                            sources=self.sources,
                            n_bins=self.output_dims,
@@ -175,7 +189,7 @@ class Pipeline:
                                 pin_memory=True,
                                 multiprocessing_context=MP_CONTEXT,
                                 persistent_workers=True,
-                                prefetch_factor=16
+                                prefetch_factor=2
                                 )
         val_data = DataLoader(val,
                              batch_size=self.config["train_loop.batch_size"],
@@ -184,7 +198,7 @@ class Pipeline:
                              pin_memory=True,
                              multiprocessing_context=MP_CONTEXT,
                              persistent_workers=True,
-                             prefetch_factor=16)
+                             prefetch_factor=2)
 
         test_data = DataLoader(test,
                                batch_size=self.config["train_loop.batch_size"],
@@ -193,7 +207,7 @@ class Pipeline:
                                pin_memory=True,
                                multiprocessing_context=MP_CONTEXT,
                                persistent_workers=True,
-                               prefetch_factor=16)
+                               prefetch_factor=2)
 
 
 
@@ -329,9 +343,12 @@ class Pipeline:
                                                   max_lr=self.config["optimizer.max_lr"],
                                                   epochs=self.config["train_loop.epochs"],
                                                   steps_per_epoch=len(train_data))
-        # early_stopping = EarlyStopping(patience=self.config["train_loop.patience"],
-        #                                delta=self.config["train_loop.delta"],
-        #                                maximize=True) # val_c_index as stopping criterion
+
+
+        early_stopping = EarlyStopping(patience=self.config["train_loop.patience"],
+                                       mode="min", verbose=True)
+                                       # delta=self.config["train_loop.delta"],
+                                       # maximize=True) # val_c_index as stopping criterion
 
         model.train()
 
@@ -401,24 +418,28 @@ class Pipeline:
 
             # calculate epoch-level concordance index
             train_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full, tied_tol=1e-08)[0]
-            wandb.log({f"fold_{fold}_train_loss": train_loss, f"fold_{fold}_train_c_index": train_c_index}, step=epoch)
+            wandb.log({f"fold_{fold}_train_loss": train_loss, f"fold_{fold}_train_c_index": train_c_index}, step=epoch if fold == 1 else None)
             print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, train_c_index))
 
 
 
             # evaluate at interval or if final epoch
             # if epoch % self.config["train_loop.eval_interval"] == 0 or epoch == self.config["train_loop.epochs"]:
+            print(f"Running validation")
             val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, val_data)
             print('Epoch: {}, val_loss: {:.4f}, val_c_index: {:.4f}'.format(epoch, val_loss, val_c_index))
-            wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch)
+            wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch if fold == 1 else None)
 
-            # if early_stopping(val_c_index):
-            #     print(f"Early stopping at epoch {epoch}")
-            #     break
+            if early_stopping.step(val_loss, model):
+                print(f"Early stopping at epoch {epoch}")
+                model = early_stopping.load_best_weights(model)
+                break
 
         # once stopped and best model is loaded, evaluate on test set
+        print(f"Running test set evaluation")
         test_loss, test_c_index = self.evaluate_survival_epoch(epoch, model, test_data)
-        wandb.log({f"fold_{fold}_test_loss": test_loss, f"fold_{fold}_test_c_index": test_c_index}, step=epoch)
+        print('Epoch: {}, test_loss: {:.4f}, test_c_index: {:.4f}'.format(epoch, test_loss, test_c_index))
+        wandb.log({f"fold_{fold}_test_loss": test_loss, f"fold_{fold}_test_c_index": test_c_index}, step=epoch if fold == 1 else None)
 
         # return values of final epoch
         return train_loss, train_c_index, val_loss, val_c_index, test_loss, test_c_index
@@ -434,7 +455,6 @@ class Pipeline:
                                 # loss_reg: float=0.0,
                                 **kwargs):
 
-        print(f"Running validation...")
         model.eval()
         risk_scores = []
         censorships = []
