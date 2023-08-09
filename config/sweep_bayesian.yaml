@@ -1,7 +1,12 @@
 method: bayes
 metric:
   goal: maximize
-  name: mean_val_c_index
+  name: mean_test_c_index
+sources:
+  value:
+    - slides
+n_folds:
+  value: 3
 parameters:
   model_params.l1:
     distribution: uniform
@@ -10,14 +15,14 @@ parameters:
   model_params.depth:
     distribution: int_uniform
     min: 2
-    max: 4
+    max: 5
   model_params.num_latents:
     distribution: int_uniform
-    min: 4
-    max: 16
+    min: 8
+    max: 32
   model_params.latent_dim:
     distribution: int_uniform
-    min: 4
+    min: 16
     max: 128
   model_params.cross_dim_head:
     distribution: int_uniform
@@ -27,4 +32,11 @@ parameters:
     distribution: int_uniform
     min: 16
     max: 128
+  model_params.attention_dropout:
+    distribution: uniform
+    min: 0.0
+    max: 0.5
+  model_params.ff_drouput:
+    min: 0.0
+    max: 0.3
 program: x_perceiver/main.py
