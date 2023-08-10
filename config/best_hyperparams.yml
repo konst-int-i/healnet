@@ -22,18 +22,18 @@ blca:
 brca:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  l1: 0.000078
+  l1: 0.000357837136929871
   num_freq_bands: 2
-  depth: 4
+  depth: 5
   max_freq: 2.
-  num_latents: 8
-  latent_dim: 32
-  cross_dim_head: 34
-  latent_dim_head: 102
+  num_latents: 31
+  latent_dim: 54
+  cross_dim_head: 112
+  latent_dim_head: 24
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.5
-  ff_dropout: 0.5
+  attn_dropout: 0.3861295797018153
+  ff_dropout: 0.18824014464851196
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
