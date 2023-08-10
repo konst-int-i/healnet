@@ -42,7 +42,7 @@ brca:
 kirp:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  l1: 0.0.00001822339581382504
+  l1: 0.00001822339581382504
   num_freq_bands: 2
   depth: 5
   max_freq: 2.
