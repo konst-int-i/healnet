@@ -300,7 +300,8 @@ class Pipeline:
                 weight_tie_layers = self.config[f"model_params.weight_tie_layers"],
                 fourier_encode_data = self.config[f"model_params.fourier_encode_data"],
                 self_per_cross_attn = self.config[f"model_params.self_per_cross_attn"],
-                final_classifier_head = True
+                final_classifier_head = True,
+                snn = self.config[f"model_params.snn"],
             )
             model.float()
             model.to(self.device)
@@ -603,8 +604,8 @@ if __name__ == "__main__":
 
         grid = ParameterGrid(
             {"dataset": datasets,
-             "sources": [["omic"], ["slides"], ["omic", "slides"]],
-             "model": ["mcat", "healnet_early"]
+             "sources": [["omic", "slides"]],
+             "model": ["healnet_early"]
              })
 
         n_folds = 5
@@ -640,16 +641,19 @@ if __name__ == "__main__":
         config["model"] = "healnet"
         config["n_folds"] = 1
         config["train_loop.early_stopping"] = False
-        config["train_loop.epochs"] = 30
-        regs = [0, 0.001]
+        config["train_loop.epochs"] = 50
+        regs = [0, 0.00025, 0.00045]
+        snn = [True]
 
         for reg in regs:
-            config["model_params.l1"] = reg
-            pipeline = Pipeline(
-                    config=config,
-                    args=args,
-                )
-            pipeline.main()
+            for s in snn:
+                config["model_params.l1"] = reg
+                config["model_params.snn"] = s
+                pipeline = Pipeline(
+                        config=config,
+                        args=args,
+                    )
+                pipeline.main()
 
 
     else: # single_run or sweep
