@@ -32,11 +32,11 @@ parameters:
     distribution: int_uniform
     min: 16
     max: 128
-  model_params.attention_dropout:
+  model_params.attn_dropout:
     distribution: uniform
     min: 0.0
     max: 0.5
   model_params.ff_drouput:
     min: 0.0
-    max: 0.3
+    max: 0.5
 program: x_perceiver/main.py
