@@ -2,7 +2,6 @@ from typing import *
 import torch
 
 def calc_reg_loss(model, l1: float, model_topo: str, sources: List[str]):
-    total_params = sum(p.numel() for p in model.parameters())
 
     if model_topo == "fcnn": # don't regularise FCNN
         reg_loss = 0
@@ -10,8 +9,7 @@ def calc_reg_loss(model, l1: float, model_topo: str, sources: List[str]):
         reg_loss = 0
     else:
         l1_norm = sum(p.abs().sum() for p in model.parameters())
-        normalized_l1 = l1_norm / total_params
-        reg_loss = float(l1) * normalized_l1
+        reg_loss = float(l1) * l1_norm
     return reg_loss
 
 

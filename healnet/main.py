@@ -384,8 +384,8 @@ class Pipeline:
             risk_scores = []
             censorships = []
             event_times = []
-            # train_loss_surv, train_loss = 0.0, 0.0
-            train_loss = 0.0
+            train_loss_surv, train_loss = 0.0, 0.0 # train_loss includes regularisation, train_loss_surve doesn't and is used for logging
+            # train_loss = 0.0
 
             for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
@@ -428,7 +428,7 @@ class Pipeline:
                 event_times.append(event_time.detach().cpu().numpy())
 
                 loss_value = loss.item()
-                # train_loss_surv += loss_value
+                train_loss_surv += loss_value
                 train_loss += loss_value + reg_loss
                 # backward pass
                 loss = loss / gc + reg_loss # gradient accumulation step
@@ -437,6 +437,7 @@ class Pipeline:
                 optimizer.zero_grad()
 
             train_loss /= len(train_data)
+            train_loss_surv /= len(train_data)
 
             risk_scores_full = np.concatenate(risk_scores)
             censorships_full = np.concatenate(censorships)
@@ -444,8 +445,8 @@ class Pipeline:
 
             # calculate epoch-level concordance index
             train_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full, tied_tol=1e-08)[0]
-            wandb.log({f"fold_{fold}_train_loss": train_loss, f"fold_{fold}_train_c_index": train_c_index}, step=epoch if fold == 1 else None)
-            print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss, train_c_index))
+            wandb.log({f"fold_{fold}_train_loss": train_loss_surv, f"fold_{fold}_train_c_index": train_c_index}, step=epoch if fold == 1 else None)
+            print('Epoch: {}, train_loss: {:.4f}, train_c_index: {:.4f}'.format(epoch, train_loss_surv, train_c_index))
 
 
 
@@ -456,7 +457,7 @@ class Pipeline:
             print('Epoch: {}, val_loss: {:.4f}, val_c_index: {:.4f}'.format(epoch, val_loss, val_c_index))
             wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch if fold == 1 else None)
 
-            if self.config.train_loop["early_stopping"] and early_stopping.step(val_loss, model):
+            if self.config["train_loop.early_stopping"] and early_stopping.step(val_loss, model):
                 print(f"Early stopping at epoch {epoch}")
                 model = early_stopping.load_best_weights(model)
                 break
@@ -541,7 +542,8 @@ class Pipeline:
         val_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full)[0]
 
         model.train()
-        return val_loss, val_c_index
+        # return unregularised loss for logging
+        return val_loss_surv, val_c_index
 
 
 # def run_plan_iter(args):
@@ -638,11 +640,11 @@ if __name__ == "__main__":
         config["model"] = "healnet"
         config["n_folds"] = 1
         config["train_loop.early_stopping"] = False
-        config["epochs"] = 50
+        config["train_loop.epochs"] = 30
         regs = [0, 0.001]
 
         for reg in regs:
-            config["model_params"]["l1"] = reg
+            config["model_params.l1"] = reg
             pipeline = Pipeline(
                     config=config,
                     args=args,
