@@ -2,22 +2,22 @@ blca:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
 #  l1: 0.0001
-  l1: 0.0
+  l1: 0.00021283165483103477
   num_freq_bands: 2
-  depth: 2
+  depth: 4
   max_freq: 2.
-  num_latents: 4
-  latent_dim: 16
-  cross_dim_head: 16
-  latent_dim_head: 16
+  num_latents: 8
+  latent_dim: 94
+  cross_dim_head: 55
+  latent_dim_head: 40
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.5
-  ff_dropout: 0.5
+  attn_dropout: 0.16013236916667006
+  ff_dropout: 0.29177496110653267
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
-  snn: False
+  snn: True
 
 brca:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
@@ -37,47 +37,48 @@ brca:
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
-  snn: False
+  snn: True
 
 kirp:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  l1: 0.0002
+  l1: 0.0.00001822339581382504
   num_freq_bands: 2
-  depth: 4
+  depth: 5
   max_freq: 2.
-  num_latents: 16
-  latent_dim: 104
-  cross_dim_head: 128
-  latent_dim_head: 84
+  num_latents: 9
+  latent_dim: 59
+  cross_dim_head: 16
+  latent_dim_head: 122
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.5
-  ff_dropout: 0.5
+  attn_dropout: 0.4352816237453055
+  ff_dropout: 0.3419652277963587
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
-  snn: False
+  snn: True
 
 ucec:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  l1: 0.00005
+  l1: 0.00045741469206032984
   num_freq_bands: 2
   depth: 3
   max_freq: 2.
-  num_latents: 14
-  latent_dim: 38
-  cross_dim_head: 64
-  latent_dim_head: 64
+  num_latents: 16
+  latent_dim: 34
+  cross_dim_head: 102
+  latent_dim_head: 82
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.5
-  ff_dropout: 0.5
+  attn_dropout: 0.2532523112064847
+  ff_dropout: 0.20502420259087328
+
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
-  snn: False
+  snn: True
 
 
 
