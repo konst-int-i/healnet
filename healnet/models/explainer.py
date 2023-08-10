@@ -31,7 +31,7 @@ class Explainer(object):
 
 
     def load_slide(self, slide_id: str) -> torch.Tensor:
-
+        pass
 
 
     def best_model(self, model):
