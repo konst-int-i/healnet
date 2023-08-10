@@ -54,9 +54,6 @@ class Pipeline:
         # create log directory for run
         # date
         self.local_run_id = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-        if self.config.explainer:
-            self.log_dir = Path(self.config.log_path).joinpath(f"{self.dataset}_{self.local_run_id}")
-            self.log_dir.mkdir(parents=True, exist_ok=True)
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.device == "cuda":
@@ -65,6 +62,10 @@ class Pipeline:
 
         # set up wandb logging
         self.wandb_setup()
+
+        if self.config.explainer:
+            self.log_dir = Path(self.config.log_path).joinpath(f"{wandb.run.name}")
+            self.log_dir.mkdir(parents=True, exist_ok=True)
 
     def wandb_setup(self) -> None:
 
@@ -76,7 +77,7 @@ class Pipeline:
             wandb.agent(sweep_id, function=self.main)
         else:
             wandb_config = dict(self.config)
-            wandb.init(project="x-perceiver", name=self.wandb_name, config=wandb_config)
+            wandb.init(project="x-perceiver", name=self.wandb_name, config=wandb_config, resume=True)
         return None
 
 
@@ -117,7 +118,7 @@ class Pipeline:
         # Initialise wandb run (do here for sweep)
         if self.args.mode == "sweep":
             # update config with sweep config
-            wandb.init(project="x-perceiver", name=None) # init sweep run
+            wandb.init(project="x-perceiver", name=None, resume=True) # init sweep run
             for key, value in wandb.config.items():
                 if key in self.config.keys():
                     self.config[key] = value
@@ -606,8 +607,8 @@ if __name__ == "__main__":
 
         grid = ParameterGrid(
             {"dataset": datasets,
-             "sources": [["omic", "slides"]],
-             "model": ["healnet_early"]
+             "sources": [["omic", "slides"], ["omic"], ["slides"]],
+             "model": ["healnet"]
              })
 
         n_folds = 5
