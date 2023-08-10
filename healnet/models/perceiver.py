@@ -116,7 +116,7 @@ class Attention(nn.Module):
             nn.LeakyReLU(negative_slope=1e-2)
         )
 
-        # self.to_out = nn.Linear(inner_dim, query_dim)
+        self.attn_weights = None
 
     def forward(self, x, context = None, mask = None):
         h = self.heads
@@ -137,7 +137,9 @@ class Attention(nn.Module):
 
         # attention, what we cannot get enough of
         attn = sim.softmax(dim = -1)
+        self.attn_weights = attn
         attn = self.dropout(attn)
+
 
         out = einsum('b i j, b j d -> b i d', attn, v)
         out = rearrange(out, '(b h) n d -> b n (h d)', h = h)
@@ -286,10 +288,17 @@ class HealNet(nn.Module):
 
         return self.to_logits(x)
 
-
-
-
-
+    def get_attention_weights(self) -> List[torch.Tensor]:
+        """
+        Helper function which returns all attention weights for all attention layers in the model
+        Returns:
+            all_attn_weights: list of attention weights for each attention layer
+        """
+        all_attn_weights = []
+        for module in self.modules():
+            if isinstance(module, Attention):
+                all_attn_weights.append(module.attn_weights)
+        return all_attn_weights
 
 
 
