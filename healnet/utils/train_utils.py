@@ -51,6 +51,9 @@ class EarlyStopping:
         Returns:
         - bool: True if early stopping conditions met, False otherwise.
         """
+        if type(metric) == float: # convert to tensor if necessary
+            metric = torch.tensor(metric)
+
         if self.operator(metric, self.best_metric):
             if self.verbose:
                 print(f"Validation metric improved from {self.best_metric:.4f} to {metric:.4f}. Saving model weights.")

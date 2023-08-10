@@ -496,14 +496,15 @@ class Pipeline:
             event_time = event_time.to(self.device)
             y_disc = y_disc.to(self.device)
 
-            y_hat = model.forward(features)
-            hazards = torch.sigmoid(y_hat)
+            logits = model.forward(features)
+            hazards = torch.sigmoid(logits)
             survival = torch.cumprod(1-hazards, dim=1)
             risk = -torch.sum(survival, dim=1).detach().cpu().numpy()
 
             if self.config["survival.loss"] == "nll":
-                loss_fn = NLLSurvLoss()
-                loss = loss_fn(h=y_hat, y=y_disc, c=censorship)
+                # loss_fn = NLLSurvLoss()
+                # loss = loss_fn(h=hazards, y=y_disc, c=censorship)
+                loss = nll_loss(hazards=hazards, S=survival, Y=y_disc, c=censorship, weights=self.class_weights)
             elif self.config["survival.loss"] == "ce_survival":
                 loss_fn = CrossEntropySurvLoss()
                 loss = loss_fn(hazards=hazards, survival=survival, y_disc=y_disc, censorship=censorship)
@@ -522,7 +523,7 @@ class Pipeline:
             val_loss_surv += loss_value
             val_loss += loss_value + reg_loss
 
-            predictions.append(y_hat.argmax(1).cpu().tolist())
+            predictions.append(logits.argmax(1).cpu().tolist())
             labels.append(y_disc.detach().cpu().tolist())
 
         # calculate epoch-level stats

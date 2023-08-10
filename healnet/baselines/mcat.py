@@ -134,6 +134,9 @@ class MCAT(nn.Module):
         if self.fusion == 'bilinear':
             h = self.mm(h_path.unsqueeze(dim=0), h_omic.unsqueeze(dim=0)).squeeze()
         elif self.fusion == 'concat':
+            if len(h_omic.shape) == 1: # if batch size is 1
+                h_omic = h_omic.unsqueeze(dim=0)
+                h_path = h_path.unsqueeze(dim=0)
             h = self.mm(torch.cat([h_path, h_omic], axis=1))
 
         ### Survival Layer
@@ -266,6 +269,9 @@ class MILAttentionNet(nn.Module):
         h_path = self.rho(h_path).squeeze()
 
         logits  = self.classifier(h_path)
+
+        if len(logits.shape) == 1: # if batch size is 1
+            logits = logits.unsqueeze(0)
 
         return logits
 
