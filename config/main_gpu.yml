@@ -6,7 +6,7 @@ seed: 1
 hyperparams: config/best_hyperparams.yml
 
 dataset: blca #  [blca, brca, ucec, kirp]
-model: healnet # [fcnn, healnet, healnet_early, mcat]
+model: mcat # [fcnn, healnet, healnet_early, mcat]
 
 explainer: True
 
