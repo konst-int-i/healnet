@@ -40,6 +40,7 @@ train_loop:
   batch_size: 4
   epochs: 100
   # early stopping
+  early_stopping: True
   patience: 7
 
 optimizer:

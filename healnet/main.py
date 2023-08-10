@@ -456,7 +456,7 @@ class Pipeline:
             print('Epoch: {}, val_loss: {:.4f}, val_c_index: {:.4f}'.format(epoch, val_loss, val_c_index))
             wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch if fold == 1 else None)
 
-            if early_stopping.step(val_loss, model):
+            if self.config.train_loop["early_stopping"] and early_stopping.step(val_loss, model):
                 print(f"Early stopping at epoch {epoch}")
                 model = early_stopping.load_best_weights(model)
                 break
@@ -575,7 +575,7 @@ if __name__ == "__main__":
 
     # assumes execution
     parser.add_argument("--config_path", type=str, default="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml", help="Path to config file")
-    parser.add_argument("--mode", type=str, default="single_run", choices=["single_run", "sweep", "run_plan"])
+    parser.add_argument("--mode", type=str, default="single_run", choices=["single_run", "sweep", "run_plan", "reg_ablation"])
     parser.add_argument("--sweep_config", type=str, default="config/sweep_bayesian.yaml", help="Hyperparameter sweep configuration")
     parser.add_argument("--dataset", type=str, default=None, help="Dataset for run plan")
     parser.add_argument("--datasets", type=list, default=["blca", "brca", "ucec", "kirp"], help="Datasets for run plan")
@@ -631,6 +631,24 @@ if __name__ == "__main__":
 
         print(f"Successfully finished runplan: "
               f"{list(grid)}")
+
+    elif args.mode == "reg_ablation":
+        config["dataset"] = "kirp"
+        config["sources"] = ["omic"]
+        config["model"] = "healnet"
+        config["n_folds"] = 1
+        config["train_loop.early_stopping"] = False
+        config["epochs"] = 50
+        regs = [0, 0.001]
+
+        for reg in regs:
+            config["model_params"]["l1"] = reg
+            pipeline = Pipeline(
+                    config=config,
+                    args=args,
+                )
+            pipeline.main()
+
 
     else: # single_run or sweep
         pipeline = Pipeline(
