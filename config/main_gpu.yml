@@ -38,7 +38,7 @@ train_loop:
   checkpoint_interval: 5
   eval_interval: 1
   batch_size: 4
-  epochs: 50
+  epochs: 70
   # early stopping
   early_stopping: True
   patience: 7
