@@ -36,7 +36,7 @@ parameters:
     distribution: uniform
     min: 0.0
     max: 0.5
-  model_params.ff_drouput:
+  model_params.ff_dropout:
     min: 0.0
     max: 0.5
 program: x_perceiver/main.py
