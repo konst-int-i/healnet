@@ -5,12 +5,12 @@ log_path: /home/kh701/pycharm/x-perceiver/logs
 seed: 1
 hyperparams: config/best_hyperparams.yml
 
-dataset: blca #  [blca, brca, ucec, kirp]
-model: mcat # [fcnn, healnet, healnet_early, mcat]
+dataset: kirp #  [blca, brca, ucec, kirp]
+model: healnet # [fcnn, healnet, healnet_early, mcat]
 
 explainer: True
 
-n_folds: 3
+n_folds: 1
 
 wandb: True
 
@@ -38,7 +38,7 @@ train_loop:
   checkpoint_interval: 5
   eval_interval: 1
   batch_size: 4
-  epochs: 100
+  epochs: 50
   # early stopping
   early_stopping: True
   patience: 7

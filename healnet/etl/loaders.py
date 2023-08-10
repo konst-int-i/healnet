@@ -32,6 +32,7 @@ class TCGADataset(Dataset):
                  num_classes: int = 2,
                  n_bins: int = 4,
                  sources: List = ["omic", "slides"],
+                 log_dir = None,
                  ):
         """
         Dataset wrapper to load different TCGA data modalities (omic and WSI data).
@@ -56,6 +57,7 @@ class TCGADataset(Dataset):
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dataset = dataset
+        self.log_dir = log_dir
         self.sources = sources
         self.filter_overlap = filter_overlap
         self.survival_analysis = survival_analysis
@@ -300,6 +302,9 @@ class TCGADataset(Dataset):
             df["y_disc"] = pd.cut(df[label_col], bins=q_bins, retbins=False, labels=False, right=False, include_lowest=True).values
 
         df["y_disc"] = df["y_disc"].astype(int)
+
+        if self.log_dir is not None:
+            df.to_csv(self.log_dir.joinpath(f"{self.dataset}_omic_overlap.csv.zip"), compression="zip")
 
         return df
 

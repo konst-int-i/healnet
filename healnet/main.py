@@ -54,7 +54,9 @@ class Pipeline:
         # create log directory for run
         # date
         self.local_run_id = datetime.now().strftime("%d-%m-%Y_%H-%M-%S")
-        self.log_dir = Path(self.config.log_path).joinpath(f"{self.dataset}_{self.local_run_id}")
+        if self.config.explainer:
+            self.log_dir = Path(self.config.log_path).joinpath(f"{self.dataset}_{self.local_run_id}")
+            self.log_dir.mkdir(parents=True, exist_ok=True)
         # initialise cuda device (will load directly to GPU if available)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         if self.device == "cuda":
@@ -157,7 +159,6 @@ class Pipeline:
         best_model = models[best_fold]
 
         if self.config.explainer:
-            self.log_dir.mkdir(parents=True, exist_ok=True)
             torch.save(best_model.state_dict(), self.log_dir.joinpath("best_model.pt"))
             # save config
             pickle_obj(self.config, self.log_dir.joinpath("config.pkl"))
@@ -187,6 +188,7 @@ class Pipeline:
                            survival_analysis=True,
                            sources=self.sources,
                            n_bins=self.output_dims,
+                           log_dir=self.log_dir,
                            )
         train_size = 0.7
         test_size = 0.15

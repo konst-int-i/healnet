@@ -17,6 +17,7 @@ blca:
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
+  snn: False
 
 brca:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
@@ -36,6 +37,7 @@ brca:
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
+  snn: False
 
 kirp:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
@@ -55,6 +57,7 @@ kirp:
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
+  snn: False
 
 ucec:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
@@ -74,6 +77,7 @@ ucec:
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
+  snn: False
 
 
 
