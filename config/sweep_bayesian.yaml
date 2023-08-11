@@ -4,9 +4,9 @@ metric:
   name: mean_test_c_index
 parameters:
   sources:
-    values:
-      - omic
-      - slides
+    value: ["omic", "slides"]
+  explainer:
+    value: False
   n_folds:
     value: 5
   train_loop.epochs:
