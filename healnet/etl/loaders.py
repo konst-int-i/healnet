@@ -86,8 +86,11 @@ class TCGADataset(Dataset):
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.omic_tensor = torch.Tensor(self.features.values)
         if self.config.model in ["healnet", "healnet_early"]:
-            # Perceiver model expects inputs of the shape (batch_size, sequence_length, input_dim)
-            self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n seq_length feat", seq_length=1)
+            # Perceiver model expects inputs of the shape (batch_size, input_dim, channels)
+            if self.config.omic_attention:
+                self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n feat channels", channels=1)
+            else:
+                self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n channels feat", channels=1)
 
 
         self.level = level
@@ -369,7 +372,8 @@ class TCGADataset(Dataset):
         load_path = self.prep_path.joinpath(f"patch_features/{slide_id}.pt")
         with open(load_path, "rb") as file:
             patch_features = torch.load(file, weights_only=True)
-        patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
+            # attention at the patch-level
+            patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
         return patch_features
 
 

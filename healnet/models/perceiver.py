@@ -97,6 +97,21 @@ class FeedForward(nn.Module):
         return self.net(x)
 
 
+def temperature_softmax(logits, temperature=1.0, dim=-1):
+    """
+    Temperature scaled softmax
+    Args:
+        logits:
+        temperature:
+        dim:
+
+    Returns:
+    """
+    scaled_logits = logits / temperature
+    return F.softmax(scaled_logits, dim=dim)
+
+
+
 class Attention(nn.Module):
     def __init__(self, query_dim, context_dim = None, heads = 8, dim_head = 64, dropout = 0.):
         super().__init__()
@@ -117,6 +132,16 @@ class Attention(nn.Module):
         )
 
         self.attn_weights = None
+        self._init_weights()
+
+    def _init_weights(self):
+    # Use He initialization for Linear layers
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+                # Initialize bias to zero if there's any
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x, context = None, mask = None):
         h = self.heads
@@ -136,7 +161,8 @@ class Attention(nn.Module):
             sim.masked_fill_(~mask, max_neg_value)
 
         # attention, what we cannot get enough of
-        attn = sim.softmax(dim = -1)
+        # attn = sim.softmax(dim = -1)
+        attn = temperature_softmax(sim, temperature=0.5, dim=-1)
         self.attn_weights = attn
         attn = self.dropout(attn)
 

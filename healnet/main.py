@@ -273,13 +273,16 @@ class Pipeline:
 
             num_sources = len(self.config["sources"])
             if num_sources == 1:
+                # input_channels = [feat[0].shape[2]]
                 input_channels = [feat[0].shape[2]]
                 input_axes = [1]
                 modalities = 1
             elif num_sources == 2 and self.config.model == "healnet":
+                # OLD
                 input_channels = [feat[0].shape[2], feat[1].shape[2]]
                 input_axes = [1, 1]
                 modalities = 2
+                # input_channels = [feat[0].shape[1], feat[1].shape[1]]
 
             # early fusion healnet (concatenation, so just one modality)
             elif num_sources == 2 and self.config.model == "healnet_early":
@@ -369,7 +372,8 @@ class Pipeline:
 
         """
         print(f"Training survival model using {self.config.model}")
-        optimizer = t_optim.lamb.Lamb(model.parameters(), lr=self.config["optimizer.lr"])
+        # optimizer = t_optim.lamb.Lamb(model.parameters(), lr=self.config["optimizer.lr"])
+        optimizer = optim.Adam(model.parameters(), lr=self.config["optimizer.lr"])
         # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
                                                   max_lr=self.config["optimizer.max_lr"],
@@ -392,6 +396,7 @@ class Pipeline:
             event_times = []
             train_loss_surv, train_loss = 0.0, 0.0 # train_loss includes regularisation, train_loss_surve doesn't and is used for logging
             # train_loss = 0.0
+            grad_norms = []
 
             for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
                 # only move to GPU now (use CPU for preprocessing)
@@ -440,7 +445,12 @@ class Pipeline:
                 loss = loss / gc + reg_loss # gradient accumulation step
                 loss.backward()
                 optimizer.step()
+                grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in model.parameters()])).detach().cpu().numpy()
+                grad_norms.append(grad_norm)
                 optimizer.zero_grad()
+
+            print(f"Epoch Norm Gradient Sum: {sum(grad_norms)}")
+            print(f"Epoch Norm Gradient Mean: {np.mean(grad_norm)}")
 
             train_loss /= len(train_data)
             train_loss_surv /= len(train_data)
@@ -448,6 +458,12 @@ class Pipeline:
             risk_scores_full = np.concatenate(risk_scores)
             censorships_full = np.concatenate(censorships)
             event_times_full = np.concatenate(event_times)
+
+            # epoch gradient norm
+            # # grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in model.parameters()]))
+            # grad_norm = self.calc_gradient_norm(model)
+            # print(grad_norm)
+            # wandb.log({f"fold_{fold}_grad_norm": grad_norm}, step=epoch if fold == 1 else None)
 
             # calculate epoch-level concordance index
             train_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full, tied_tol=1e-08)[0]
@@ -551,6 +567,13 @@ class Pipeline:
         # return unregularised loss for logging
         return val_loss_surv, val_c_index
 
+    def calc_gradient_norm(self, model):
+        total_norm = 0
+        for p in model.parameters():
+            param_norm = p.grad.data.norm(2)
+            total_norm += param_norm.item() ** 2
+        total_norm = total_norm ** (1. / 2)
+        return total_norm
 
 # def run_plan_iter(args):
 #     iteration, params, config, cl_args = args
