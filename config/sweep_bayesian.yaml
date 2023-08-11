@@ -2,12 +2,20 @@ method: bayes
 metric:
   goal: maximize
   name: mean_test_c_index
-sources:
-  value:
-    - slides
-n_folds:
-  value: 3
 parameters:
+  sources:
+    values:
+      - omic
+      - slides
+  n_folds:
+    value: 5
+  train_loop:
+    epochs:
+      value: 50
+    patience:
+      value: 5
+    batch_size:
+      value: 8
   model_params.l1:
     distribution: uniform
     min: 0.0
@@ -39,4 +47,8 @@ parameters:
   model_params.ff_dropout:
     min: 0.0
     max: 0.5
+  optimizer.lr:
+    distribution: uniform
+    min: 0.0001
+    max: 0.01
 program: x_perceiver/main.py
