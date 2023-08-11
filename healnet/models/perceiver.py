@@ -132,7 +132,7 @@ class Attention(nn.Module):
         )
 
         self.attn_weights = None
-        self._init_weights()
+        # self._init_weights()
 
     def _init_weights(self):
     # Use He initialization for Linear layers
