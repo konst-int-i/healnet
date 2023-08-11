@@ -9,12 +9,11 @@ parameters:
       - slides
   n_folds:
     value: 5
-  train_loop:
-    epochs:
+  train_loop.epochs:
       value: 50
-    patience:
+  train_loop.patience:
       value: 5
-    batch_size:
+  train_loop.batch_size:
       value: 8
   model_params.l1:
     distribution: uniform
