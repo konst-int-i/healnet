@@ -47,6 +47,7 @@ class Pipeline:
         self.config = flatten_config(config)
         self.dataset = self.config.dataset
         self.args = args
+        self.log_dir = None
         self._check_config()
         self.wandb_name = wandb_name
         self.output_dims = int(self.config[f"model_params.output_dims"])
@@ -66,6 +67,7 @@ class Pipeline:
         if self.config.explainer:
             self.log_dir = Path(self.config.log_path).joinpath(f"{wandb.run.name}")
             self.log_dir.mkdir(parents=True, exist_ok=True)
+
 
     def wandb_setup(self) -> None:
 
