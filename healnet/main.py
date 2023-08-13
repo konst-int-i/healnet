@@ -216,7 +216,7 @@ class Pipeline:
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
                                 shuffle=True,
-                                num_workers=multiprocessing.cpu_count(),
+                                num_workers=multiprocessing.cpu_count()/2,
                                 pin_memory=True,
                                 multiprocessing_context=MP_CONTEXT,
                                 persistent_workers=True,
@@ -225,7 +225,7 @@ class Pipeline:
         val_data = DataLoader(val,
                              batch_size=self.config["train_loop.batch_size"],
                              shuffle=False,
-                             num_workers=multiprocessing.cpu_count(),
+                             num_workers=multiprocessing.cpu_count()/2,
                              pin_memory=True,
                              multiprocessing_context=MP_CONTEXT,
                              persistent_workers=True,
@@ -234,8 +234,8 @@ class Pipeline:
         test_data = DataLoader(test,
                                batch_size=self.config["train_loop.batch_size"],
                                shuffle=False,
-                               num_workers=multiprocessing.cpu_count(),
-                               pin_memory=True,
+                               num_workers=multiprocessing.cpu_count()/2,
+                               pin_memory=True,J
                                multiprocessing_context=MP_CONTEXT,
                                persistent_workers=True,
                                prefetch_factor=2)
