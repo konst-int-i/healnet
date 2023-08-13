@@ -100,8 +100,9 @@ class TCGADataset(Dataset):
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
 
-        manager = Manager()
-        self.patch_cache = manager.dict()
+        # manager = Manager()
+        # self.patch_cache = manager.dict()
+        self.patch_cache = SharedLRUCache(capacity=100)
         print(f"Dataloader initialised for {dataset} dataset")
         self.get_info(full_detail=False)
 
@@ -124,9 +125,12 @@ class TCGADataset(Dataset):
 
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
-                self.patch_cache[index] = slide_tensor
+                self.patch_cache.set(index, slide_tensor)
+                # self.patch_cache[index] = slide_tensor
+
             else:
-                slide_tensor = self.patch_cache[index]
+                # slide_tensor = self.patch_cache[index]
+                slide_tensor = self.patch_cache.get(index)
             if self.config.model == "fcnn": # for fcnn baseline
                 slide_tensor = torch.flatten(slide_tensor)
 
@@ -138,9 +142,12 @@ class TCGADataset(Dataset):
 
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
-                self.patch_cache[index] = slide_tensor
+                # self.patch_cache[index] = slide_tensor
+                self.patch_cache.set(index, slide_tensor)
             else:
-                slide_tensor = self.patch_cache[index]
+                # slide_tensor = self.patch_cache[index]
+                slide_tensor = self.patch_cache.get(index)
+
 
             if self.concat: # for early fusion baseline
                 slide_flat = torch.flatten(slide_tensor)
@@ -376,6 +383,34 @@ class TCGADataset(Dataset):
             patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
         return patch_features
 
+
+
+class SharedLRUCache:
+    def __init__(self, capacity: int):
+        manager = Manager()
+        self.capacity = capacity
+        self.cache = manager.dict()
+        self.order = manager.list()
+
+    def get(self, key: int):
+        if key in self.cache:
+            # Move key to end to show it was recently used.
+            self.order.remove(key)
+            self.order.append(key)
+            return self.cache[key]
+        else:
+            return None
+
+    def set(self, key: int, value):
+        if key in self.cache:
+            self.order.remove(key)
+        else:
+            if len(self.order) >= self.capacity:
+                removed_key = self.order.pop(0)  # Remove the first (least recently used) item.
+                del self.cache[removed_key]
+
+        self.order.append(key)
+        self.cache[key] = value
 
 
 def count_open_files():
