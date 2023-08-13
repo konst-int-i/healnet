@@ -9,7 +9,7 @@ dataset: kirp #  [blca, brca, ucec, kirp]
 model: healnet # [fcnn, healnet, healnet_early, mcat]
 
 explainer: False
-omic_attention: True # temporary flag for debugging
+omic_attention: False # temporary flag for debugging
 
 
 n_folds: 1
