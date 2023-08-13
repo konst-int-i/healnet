@@ -412,6 +412,8 @@ class SharedLRUCache:
         self.order.append(key)
         self.cache[key] = value
 
+    def __contains__(self, key):
+        return key in self.cache
 
 def count_open_files():
     return len(os.listdir(f'/proc/{os.getpid()}/fd'))
