@@ -22,7 +22,7 @@ data:
   resize_height: 1024 # if resize is True
   resize_width: 1024 # if resize is True
   patch_size: 256 # don't changed if used for pre-processing
-  wsi_level: 2 # WSI resolution level (if available)
+  wsi_level: 1 # WSI resolution level (if available)
   prefetch: False
 
 
