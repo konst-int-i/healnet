@@ -14,10 +14,16 @@ import matplotlib.patches as patches
 import cv2
 import pandas as pd
 from openslide import OpenSlide
+from scipy.ndimage import zoom
+
 
 class Explainer(object):
-    def __init__(self, log_dir: str, level: int = 2):
+    def __init__(self, log_dir: str, show=False):
         self.log_dir = Path(log_dir)
+        # run name
+        self.show = show
+        self.expl_dir = Path(f"explanations/{self.log_dir.name}")
+        self.expl_dir.mkdir(parents=True, exist_ok=True)
         self.config = unpickle(self.log_dir.joinpath("config.pkl"))
         self.level = self.config["data.wsi_level"]
         self.dataset = self.config.dataset
@@ -26,8 +32,8 @@ class Explainer(object):
         self.prep_path = Path(self.config["tcga_path"]).joinpath(f"wsi/{self.dataset}_preprocessed_level{self.level}/")
         self.raw_path = Path(self.config.tcga_path).joinpath(f"wsi/{self.dataset}")
 
-        # self.omic_df = self.load_omic_df()
 
+        print("Initializing dataset...")
         self.data = TCGADataset(
             dataset=self.dataset,
             config=self.config,
@@ -37,19 +43,38 @@ class Explainer(object):
             log_dir=None,
         )
         self.omic_df = self.data.omic_df
+        print("Loading model...")
         self.model = self.load_model()
+        self.model.eval()
 
-        self.high_risk = self.get_patients(risk="high")
-        self.low_risk = self.get_patients(risk="low")
+    def run(self, n_high: int = 3, n_low: int = 0, downsample: float = None):
+        """
+        Run explanation for n_high high risk patients and n_low low risk patients
+        Args:
+            n_high:
+            n_low:
 
-    def run(self, sample):
+        Returns:
+
+        """
+        self.high_risk = self.get_patients(risk="high", n=n_high)
+        self.low_risk = self.get_patients(risk="low", n=n_low)
+
+        # high risk
+        for i in range(n_high):
+            self.save_name = f"high_risk_{i}"
+            self.run_sample_explanation(self.high_risk[i:i+1], downsample=downsample)
+
+        # low risk
+        for i in range(n_low):
+            self.run_sample_explanation(self.low_risk[i:i+1], downsample=downsample)
+
+
+
+    def run_sample_explanation(self, sample: str, run_omic: bool = True, run_slides: bool = True, downsample: float = None):
         idx, slide_id = sample.index[0], sample.iloc[0]
         patch_coords = self.load_patch_coords(sample.iloc[0])
         self.slide, region = self.load_wsi(sample.iloc[0], level=self.level)
-
-        # plot slide in matplotlib
-        # plt.imshow(region)
-        # plt.show()
 
         (omic_tensor, slide_tensor), _, _, _ = self.data[idx]
 
@@ -62,23 +87,41 @@ class Explainer(object):
         probs = torch.softmax(logits, dim=1)
         attn_weights = self.model.get_attention_weights()
         slide_attn = [w for w in attn_weights if w.shape[2] == n_patches]
-        # slide_attn = [w for w in attn_weights if w.shape[1] == n_patches]
+        omic_attn = [w for w in attn_weights if w.shape[2] == n_features]
 
+        k = 20
+        # self.color="YlGn"
+        # self.color = "RdGy_r"
+        # self.pallete = sns.light_palette(self.color, n_colors=k)[::-1]
+        # self.color = "Yellows"
+        self.color = "Blues"
+        self.pallete = sns.color_palette(self.color, n_colors=k)[::-1] # reverse order to get increasingly darker
 
-        # omic_attn = [w for w in attn_weights if w.shape[2] == n_features]
+        if len(omic_attn) > 0 and run_omic:
+            # plot average
+            self.plot_omic_attn(omic_attn, agg_layers=True, k=k)
+            # plot_by layer
+            # for i in range(len(omic_attn)):
+            #     self.plot_omic_attn(omic_attn, layer=i, agg_layers=False)
 
-        # if len(omic_attn) > 0:
-        #     # plot average
-        #     self.plot_omic_attn(omic_attn, agg_layers=True)
-        #     # plot_by layer
-        #     for i in range(len(omic_attn)):
-        #         self.plot_omic_attn(omic_attn, layer=i, agg_layers=False)
+        if len(slide_attn) > 0 and run_slides:
+            print(f"Reading slide...")
+            slide_img = self.slide.read_region(location=(0, 0), level=self.level, size=self.slide.level_dimensions[self.level])
+            slide_img = np.array(slide_img)[:, :, :3]  # Convert PIL image to array and remove alpha if present
 
-        if len(slide_attn) > 0:
             # pick layer with highest std deviation across patches
             layer_to_viz = np.argmax([torch.std(w).detach().cpu() for w in slide_attn])
+            # None --> mean across all layers
+            self.plot_slide_attn(slide_img, slide_attn, patch_coords, layer=None, downsample=downsample)
 
-            self.plot_slide_attn(slide_attn, patch_coords, layer=layer_to_viz)
+
+
+
+            # for layer in range(len(slide_attn)):
+            #     try:
+            #         self.plot_slide_attn(slide_img, slide_attn, patch_coords, layer=layer)
+            #     except:
+            #         pass
 
 
     def plot_omic_attn(self, omic_attn, k: int=20, scale_fraction: float=0.5, layer: int=0, agg_layers: bool=False):
@@ -109,8 +152,8 @@ class Explainer(object):
         max_attn = plot_df["attention"].max()
         plot_df["attention_scaled"] = (plot_df["attention"] - min_attn) / (max_attn - min_attn)
         plot_df = plot_df.iloc[:k]
-        sns.barplot(data=plot_df, y="feature", x="attention_scaled")
-        lower_lim = plot_df["attention_scaled"].min() - 0.05
+        sns.barplot(data=plot_df, y="feature", x="attention_scaled", palette=self.pallete)
+        lower_lim = plot_df["attention_scaled"].min() - 0.001 * plot_df["attention_scaled"].min()
         plt.xlim(lower_lim, 1)
         if agg_layers:
             plt.title(f"Mean Omic Attention")
@@ -118,10 +161,20 @@ class Explainer(object):
             plt.title(f"Layer {layer+1} Omic Attention")
         plt.yticks(fontsize=8)
         plt.subplots_adjust(left=0.3)
-        plt.show()
+        save_path = self.expl_dir.joinpath(f"{self.save_name}_omic_attn.png")
+        print(f"Saving to {save_path}")
+        plt.savefig(self.expl_dir.joinpath(f"{self.save_name}_omic_attn.png"), dpi=300)
+        if self.show:
+            plt.show()
 
-    def plot_slide_attn(self, slide_attn, patch_coords, layer: int=0):
-        slide_attn = torch.mean(slide_attn[layer], dim=1).squeeze().detach().cpu().numpy()
+    def plot_slide_attn(self, slide_img, slide_attn, patch_coords, layer: int=0, downsample: float = None):
+
+        patch_size = (256, 256)
+        if layer is None:
+            # take mean across all layers
+            slide_attn = torch.stack(slide_attn).mean(dim=0).mean(dim=1).squeeze().detach().cpu().numpy()
+        else:
+            slide_attn = torch.mean(slide_attn[layer], dim=1).squeeze().detach().cpu().numpy()
         slide_attn = slide_attn[:len(patch_coords)]
         x_coord = patch_coords[:, 0]
         y_coord = patch_coords[:, 1]
@@ -130,19 +183,66 @@ class Explainer(object):
         # normalize attention scores
         slide_dims = self.slide.level_dimensions
         original_dims  = slide_dims[0]
+        # scale X depending on which level we are reading the slide at
         scale_factor = int(original_dims[0] / slide_dims[self.level][0])
         plot_df["x_scaled"] = (plot_df["x"] / scale_factor).astype(int)
         plot_df["y_scaled"] = (plot_df["y"] / scale_factor).astype(int)
         plot_df["attention_scaled"] = (plot_df["attention"] - plot_df["attention"].min()) / (plot_df["attention"].max() - plot_df["attention"].min())
-        self.create_heatmap(slide=self.slide, df=plot_df)
+
+        if downsample is not None:
+            slide_img = zoom(np.array(slide_img), (downsample, downsample, 1))
+            plot_df['x_scaled'] = (plot_df['x_scaled'] * downsample).astype(int)
+            plot_df['y_scaled'] = (plot_df['y_scaled'] * downsample).astype(int)
+            patch_size = (int(patch_size[0] * downsample), int(patch_size[1] * downsample))
 
 
-    def create_heatmap(self, slide, df, patch_size=(256, 256), show=True, color="red"):
+        self.create_heatmap(slide_img=slide_img, patch_size=patch_size, df=plot_df, show=True, layer=layer)
+        self.highlight_top_patches(slide_img=slide_img, df=plot_df, patch_size=patch_size, show=True, layer=layer)
+
+    def highlight_top_patches(self, slide_img, df, patch_size, show=True, layer: int=1):
+
+
+        """
+        Highlights the top 5 features with highest attention scores on an OpenSlide image using a frame.
+
+        Parameters:
+        - slide_img: PIL image of the entire slide read in at specified level
+        - df: DataFrame containing 'x_scaled', 'y_scaled', and 'attention_scaled' columns.
+        - patch_size: size of each patch to frame.
+        - show: Boolean to decide whether to display the image with highlighted features.
+
+        Returns:
+        - Image with highlighted top features.
+        """
+        print(f"Highlighting top patches...")
+
+        # Sort dataframe by attention_scaled in descending order and take top 5
+        top_df = df.sort_values(by='attention_scaled', ascending=False).head(5)
+
+        # Initialize a figure for plotting
+        fig, ax = plt.subplots(figsize=(10, 10))
+        ax.imshow(slide_img)
+
+        # Draw frames for the top 5 features
+        for index, row in top_df.iterrows():
+            x, y = int(row['x_scaled']), int(row['y_scaled'])
+            rect = patches.Rectangle((x, y), patch_size[0], patch_size[1], linewidth=2, edgecolor='lime', facecolor='none')
+            ax.add_patch(rect)
+
+        # Hide axes and display image if show is True
+        plt.axis('off')
+        plt.savefig(self.expl_dir.joinpath(f"{self.save_name}_patch_highlights.png"), dpi=300)
+        if self.show:
+            # plt.title(f"Layer {layer+1} High Attention Patches", size=15)
+            plt.show()
+
+
+    def create_heatmap(self, slide_img, df, patch_size, show=True, layer: int=1, mask_cutoff: float=0.3):
         """
         Creates a heatmap from attention scores on an OpenSlide image.
 
         Parameters:
-        - slide_path: path to the OpenSlide image.
+        - slide_img: PIL image of the entire slide read in at specified level
         - df: DataFrame containing 'x', 'y', and 'attention' columns.
         - patch_size: size of each patch to highlight.
         - colormap: colormap to use for heatmap.
@@ -151,29 +251,17 @@ class Explainer(object):
         - heatmap overlayed on the slide image.
         """
 
-        # Open the slide
-        # slide = openslide.OpenSlide(slide_path)
-
-        # Read the entire slide
-        slide_img = slide.read_region(location=(0, 0), level=self.level, size=slide.level_dimensions[self.level])
-        slide_img = np.array(slide_img)[:, :, :3]  # Convert PIL image to array and remove alpha if present
-
+        print(f"Creating heatmap...")
         # Create an empty heatmap of same size as slide
         heatmap = np.zeros(slide_img.shape[:2])
 
-        # Populate heatmap using the attention scores from the DataFrame
-        for index, row in df.iterrows():
-            x, y = int(row['x_scaled']), int(row['y_scaled'])
-            attention = row['attention_scaled']
+        # Convert DataFrame columns to NumPy arrays
+        xs = df['x_scaled'].values.astype(int)
+        ys = df['y_scaled'].values.astype(int)
+        attentions = df['attention_scaled'].values
+        for x, y, attention in zip(xs, ys, attentions):
             heatmap[y:y+patch_size[1], x:x+patch_size[0]] = attention
-
-
-        # Create a heatmap using matplotlib's colormaps
-        # heatmap_colored = (color_map[:, :, :3] * heatmap[:, :, np.newaxis] * 255).astype(np.uint8)
-
-        # Create a mask for blending
-        # mask = (heatmap > 0).astype(np.uint8)[:, :, np.newaxis]
-        # blended = slide_img * (1 - mask) + heatmap * mask
+        mask = heatmap <= mask_cutoff
 
         # Show the heatmap and legend if the 'show' parameter is set to True
         if show:
@@ -181,16 +269,17 @@ class Explainer(object):
 
             plt.imshow(slide_img)
             cbar_kws = {"shrink": 0.5} # colour bar scale
-            ax = sns.heatmap(heatmap, cmap=sns.light_palette(color, as_cmap=True), alpha=0.3,
-                             cbar=True, annot=False, cbar_kws=cbar_kws)
-
+            ax = sns.heatmap(heatmap, cmap=self.color, alpha=0.45,
+                             cbar=True, annot=False, cbar_kws=cbar_kws, mask=mask)
             # Add colorbar to represent the attention values
             cbar = ax.collections[0].colorbar
             cbar.set_ticks([0, heatmap.max()])
             cbar.set_label('Attention', size=15)
-
+            # plt.title(f"Layer {layer+1} Attention Heatmap", size=15)
             plt.axis('off')
-            plt.show()
+            plt.savefig(self.expl_dir.joinpath(f"{self.save_name}_heatmap.png"), dpi=300)
+            if self.show:
+                plt.show()
 
 
         # return blended
@@ -321,16 +410,22 @@ class Explainer(object):
 
 
 if __name__ == "__main__":
-    # log_path = "logs/blca_09-08-2023_17-36-36"
-    # log_path = "logs/kirp_10-08-2023_18-31-30"
-    # log_path = "logs/graceful-haze-2166"
-    # log_path= "logs/celestial-blaze-2702" # kirp level 1 (final)
+    # log_path = "logs/solar-paper-2708" # ucec level 2, no omic attention
+    # log_path = "logs/devoted-universe-2701" # ucec level 1, omic attentio
     # log_path = "logs/pleasant-smoke-2704" # kirp level 2 (dev), omic attention
-    log_path = "logs/solar-paper-2708" # ucec level 2, no omic attention
+    log_path= "logs/rural-sky-2709" # kirp level 1, omic attention
 
     torch.multiprocessing.set_start_method("fork")
 
-    e = Explainer(log_path)
-    e.run(e.high_risk[2:3])
+    e = Explainer(log_path, show=True)
+    e.run(n_high=5, n_low=5, downsample=0.2)
+
+    # e.run(e.high_risk[2:3])
+
+    #
+    # for id in e.high_risk:
+    #     e.run(id)
+    # for id in e.low_risk:
+    #     e.run(id)
 
 
