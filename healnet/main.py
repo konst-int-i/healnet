@@ -235,7 +235,7 @@ class Pipeline:
                                batch_size=self.config["train_loop.batch_size"],
                                shuffle=False,
                                num_workers=multiprocessing.cpu_count()/2,
-                               pin_memory=True,J
+                               pin_memory=True,
                                multiprocessing_context=MP_CONTEXT,
                                persistent_workers=True,
                                prefetch_factor=2)
@@ -620,7 +620,7 @@ if __name__ == "__main__":
     config = Config(config_path).read()
     if args.dataset is not None: # for command line sweeps
         config["dataset"] = args.dataset
-    # get best hyperparameters for dataset
+    # get best hyperparameters for datKaset
     hyperparams = Config(config["hyperparams"]).read()[config.dataset]
     config["model_params"] = hyperparams
 
