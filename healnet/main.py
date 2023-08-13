@@ -186,8 +186,8 @@ class Pipeline:
 
         data = TCGADataset(self.config["dataset"],
                            self.config,
-                           level=level_dict[self.config["dataset"]],
-                           # level=int(self.config["data.wsi_level"]),
+                           # level=level_dict[self.config["dataset"]],
+                           level=int(self.config["data.wsi_level"]),
                            survival_analysis=True,
                            sources=self.sources,
                            n_bins=self.output_dims,
