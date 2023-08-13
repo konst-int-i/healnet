@@ -15,7 +15,7 @@ class Explainer(object):
     def __init__(self, log_dir: str, level: int = 2):
         self.log_dir = Path(log_dir)
         self.config = unpickle(self.log_dir.joinpath("config.pkl"))
-        self.level = level
+        self.level = self.config["data.wsi_level"]
         self.dataset = self.config.dataset
         self.test_data_indices = unpickle(self.log_dir.joinpath("test_data_indices.pkl"))
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -55,6 +55,11 @@ class Explainer(object):
         logits = self.model([omic_tensor, slide_tensor])
         probs = torch.softmax(logits, dim=1)
         attn_weights = self.model.get_attention_weights()
+        slide_weights = [w for w in attn_weights if w.shape[2] > 1]
+
+        layer = 0
+        slide_weights[0]
+
         print(attn_weights)
 
 
@@ -182,7 +187,10 @@ class Explainer(object):
 if __name__ == "__main__":
     # log_path = "logs/blca_09-08-2023_17-36-36"
     # log_path = "logs/kirp_10-08-2023_18-31-30"
-    log_path = "logs/graceful-haze-2166"
+    # log_path = "logs/graceful-haze-2166"
+    # log_path= "logs/celestial-blaze-2702" # kirp level 1 (final)
+    log_path = "logs/polar-firebrand-2703" # kirp level 2 (dev), no omic attention
+
     torch.multiprocessing.set_start_method("fork")
 
     e = Explainer(log_path)

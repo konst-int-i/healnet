@@ -380,7 +380,7 @@ class TCGADataset(Dataset):
         with open(load_path, "rb") as file:
             patch_features = torch.load(file, weights_only=True)
             # attention at the patch-level
-            patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
+            # patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
         return patch_features
 
 
