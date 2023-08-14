@@ -254,8 +254,6 @@ class HealNet(nn.Module):
                 cross_attn_layers.append(cross_attn_funcs[j](**cache_args))
                 cross_attn_layers.append(get_cross_ff(**cache_args))
 
-            # print(f"Layer {i+1} module list: ")
-            # print(nn.ModuleList([*cross_attn_layers, self_attns]))
 
             self.layers.append(nn.ModuleList(
                 [*cross_attn_layers, self_attns])
@@ -268,13 +266,18 @@ class HealNet(nn.Module):
         ) if final_classifier_head else nn.Identity()
 
 
+    # def _handle_missing(self, tensors: List[torch.Tensor]):
+
+
+
     def forward(self,
                 tensors: List[torch.Tensor],
                 mask: Optional[torch.Tensor] = None,
+                missing: Optional[torch.Tensor] = None,
                 return_embeddings: bool = False
                 ):
 
-        for i in range(self.modalities):
+        for i in range(len(tensors)):
             data = tensors[i]
             # sanity checks
             b, *axis, _, device, dtype = *data.shape, data.device, data.dtype
@@ -300,8 +303,11 @@ class HealNet(nn.Module):
             for i in range(self.modalities):
                 cross_attn= layer[i*2]
                 cross_ff = layer[(i*2)+1]
-                x = cross_attn(x, context = tensors[i], mask = mask) + x
-                x =  cross_ff(x) + x
+                try:
+                    x = cross_attn(x, context = tensors[i], mask = mask) + x
+                    x =  cross_ff(x) + x
+                except:
+                    pass
 
             if self.self_per_cross_attn > 0:
                 self_attn, self_ff = layer[-1]

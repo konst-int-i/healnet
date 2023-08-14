@@ -238,14 +238,25 @@ class Explainer(object):
         for index, row in top_df.iterrows():
             x, y = int(row['x_scaled']), int(row['y_scaled'])
             patch = slide_img[y:y+patch_size[1], x:x+patch_size[0]]
-            # patch = self.slide.read_region(location=(x, y), level=self.level, size=patch_size)
-
             plt.imshow(patch)
             plt.axis('off')
             save_path = self.expl_dir.joinpath(f"{self.save_name}_patch_{index}.png")
             plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
             print(f"Saving to {save_path}")
             plt.show()
+
+        # also save in highest res
+        for index, row in top_df.iterrows():
+            x, y = int(row["x"]), int(row["y"])
+            patch_size_orig = (256 * scale_factor, 256*scale_factor)
+            print(patch_size_orig)
+            patch = self.slide.read_region(location=(x, y), level=0, size=patch_size_orig)
+            save_path = self.expl_dir.joinpath(f"{self.save_name}_patch_{index}_high_res.png")
+            patch.save(save_path)
+            plt.imshow(patch)
+            plt.axis("off")
+            plt.show()
+
 
     def highlight_top_patches(self, slide_img, df, patch_size, show=True, layer: int=1):
 
@@ -475,8 +486,8 @@ if __name__ == "__main__":
     e.run(n_high=3,
           n_low=0,
           downsample=None,
-          run_omic=True,
-          run_slides=False,
+          run_omic=False,
+          run_slides=True,
           heatmap=False,
           highlight_patches=False
           )
