@@ -2,18 +2,18 @@ blca:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
 #  l1: 0.0001
-  l1: 0.00021283165483103477
+  l1: 0.00001671147846564475
   num_freq_bands: 2
   depth: 4
   max_freq: 2.
-  num_latents: 8
-  latent_dim: 94
+  num_latents: 19
+  latent_dim: 119
   cross_dim_head: 55
-  latent_dim_head: 40
+  latent_dim_head: 127
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.16013236916667006
-  ff_dropout: 0.29177496110653267
+  attn_dropout: 0.34563567345663077
+  ff_dropout: 0.36265657915338073
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
@@ -22,18 +22,18 @@ blca:
 brca:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  l1: 0.000357837136929871
+  l1: 0.00002870617016750465
   num_freq_bands: 2
-  depth: 5
+  depth: 4
   max_freq: 2.
-  num_latents: 31
-  latent_dim: 54
-  cross_dim_head: 112
-  latent_dim_head: 24
+  num_latents: 27
+  latent_dim: 39
+  cross_dim_head: 74
+  latent_dim_head: 20
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.3861295797018153
-  ff_dropout: 0.18824014464851196
+  attn_dropout: 0.4500536564266122
+  ff_dropout: 0.15122457689514174
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
@@ -42,18 +42,18 @@ brca:
 kirp:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  l1: 0.00001822339581382504
+  l1: 0.0001668539779081218
   num_freq_bands: 2
-  depth: 5
+  depth: 2
   max_freq: 2.
-  num_latents: 9
-  latent_dim: 59
-  cross_dim_head: 16
-  latent_dim_head: 122
+  num_latents: 23
+  latent_dim: 64
+  cross_dim_head: 80
+  latent_dim_head: 113
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.4352816237453055
-  ff_dropout: 0.3419652277963587
+  attn_dropout: 0.10432102687195144
+  ff_dropout: 0.3016632300471939
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
@@ -62,19 +62,18 @@ kirp:
 ucec:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  l1: 0.00045741469206032984
+  l1: 0.0001294342914492292
   num_freq_bands: 2
-  depth: 3
+  depth: 2
   max_freq: 2.
-  num_latents: 16
-  latent_dim: 34
-  cross_dim_head: 102
-  latent_dim_head: 82
+  num_latents: 18
+  latent_dim: 53
+  cross_dim_head: 104
+  latent_dim_head: 51
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.2532523112064847
-  ff_dropout: 0.20502420259087328
-
+  attn_dropout: 0.26903403568592693
+  ff_dropout: 0.397318691777149
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
