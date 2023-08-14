@@ -35,10 +35,6 @@ parameters:
     distribution: int_uniform
     min: 16
     max: 128
-  model_params.latent_dim_head:
-    distribution: int_uniform
-    min: 16
-    max: 128
   model_params.attn_dropout:
     distribution: uniform
     min: 0.0
@@ -46,8 +42,4 @@ parameters:
   model_params.ff_dropout:
     min: 0.0
     max: 0.5
-  optimizer.lr:
-    distribution: uniform
-    min: 0.0001
-    max: 0.01
 program: x_perceiver/main.py
