@@ -10,9 +10,11 @@ https://www.biorxiv.org/content/10.1101/577197v1
 import os, sys, random, yaml
 from itertools import product
 from tqdm import tqdm
-
+from typing import *
 import itertools
+from box import Box
 import numpy as np
+from einops.layers.torch import Reduce
 import matplotlib as mpl
 #mpl.use('Agg')
 import matplotlib.pyplot as plt
@@ -212,6 +214,10 @@ def masked_mean(data, masks):
     denom = sum((mask for mask in masks))[:, None].float()
     return num/denom
 
+def unmasked_mean(data):
+    stacked_data = torch.stack(data, dim=0)
+    return torch.mean(stacked_data, dim=0)
+
 def masked_variance(data, masks):
     EX2 = masked_mean(data, masks)**2
     E2X = masked_mean((x**2 for x in data), masks)
@@ -219,93 +225,141 @@ def masked_variance(data, masks):
 
 
 class MMPrognosis(TrainableModel):
-    def __init__(self):
+    def __init__(self,
+                 output_dims: int,
+                 # input_dim: int,
+                 sources: List[str],
+                 config: Box,
+                 final_classifier_head: bool = True):
         super(MMPrognosis, self).__init__()
+        self.embedding_dims = 256
+        self.output_dims = output_dims
+        self.config = config
 
-        self.fcm = nn.Linear(1881, 256)
-        self.fcc = nn.Linear(7, 256)
-        self.fcg = nn.Linear(60483, 256)
+        self.fcm = nn.Linear(1881, self.embedding_dims)
+        self.fcc = nn.Linear(7, self.embedding_dims)
+        # self.fcg = nn.Linear(60483, embedding_dims)
         self.highway = Highway(256, 10, f=F.relu)
-        self.fc2 = nn.Linear(256, 2)
-        self.fcd = nn.Linear(256, 1) # TODO: 4 out features
-        self.bn1 = nn.BatchNorm1d(256)
-        self.bn2 = nn.BatchNorm1d(256)
-        self.bn3 = nn.BatchNorm1d(1, affine=True)
+        self.fc2 = nn.Linear(self.embedding_dims, self.output_dims)
+        self.fcd = nn.Linear(self.embedding_dims, self.output_dims)
+        self.bn1 = nn.BatchNorm1d(self.embedding_dims)
+        self.bn2 = nn.BatchNorm1d(self.embedding_dims)
+        # self.bn3 = nn.BatchNorm1d(1, affine=True)
+        self.modalities = len(sources)
+        self.sources = sources
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         self.squeezenet = models.squeezenet1_0()
 
-    def forward(self, data, mask):
-
-        x = data['mirna']
-        x = x.view(x.shape[0], -1)
-        x = F.dropout(x, 0.3)
-        x = F.tanh(self.fcm(x))
-
-        y = data['clinical']
-        y = y.view(y.shape[0], -1)
-        y = F.tanh(self.fcc(y))
-
-        z = data['gene']
-        z = z.view(z.shape[0], -1)
-        z = F.tanh(self.fcg(z))
-
-        w = data['slides']
-        B, N, C, H, W = w.shape
-        print ("Slides shape: ", w.shape)
-        w = w.view(w.shape[0], -1)
-        w = F.tanh(self.squeezenet(w.view(B*N, C, H, W)).view(B, N, -1).mean(dim=1))
-
-        # TODO: add masks (all ones in our case, no missing mods)
-        mean = masked_mean((x, y, z, w), (mask["mirna"], mask["clinical"], mask["gene"], mask["slides"]))
+        self.to_logits = nn.Sequential(
+            # Reduce('b n d -> b d', 'mean'),
+            nn.LayerNorm(self.embedding_dims),
+            nn.Linear(self.embedding_dims, self.output_dims)
+        ) if final_classifier_head else nn.Identity()
 
 
-        var = masked_variance((x, y, z, w), (mask["mirna"], mask["clinical"], mask["gene"], mask["slides"])).mean()
-        var2 = masked_mean (((x - mean.mean())**2, (y - mean.mean())**2, (z - mean.mean())**2, (w - mean.mean())**2),\
-                            (mask["mirna"], mask["clinical"], mask["gene"], mask["slides"]))
-        # calculate ratio of variances via expectation formula: Var(X) = E[(X-X^)^2]
+    def forward(self, data: List[torch.Tensor]):
+
+        mask = {}
+
+        if self.sources == ["omic"]:
+            z, mask = self.omic_encoder(data[0], mask)
+
+            mean = masked_mean((z, 1), mask["omic"])
+            # mean = uasked_mean(z)
+            var = masked_variance((z), mask["omic"]).mean()
+            var2 = masked_mean (((z - mean.mean())**2), mask["omic"])
+
+        elif self.sources == ["slides"]:
+            w, mask = self.wsi_encoder(data[0], mask)
+            mean = masked_mean((w, 1), mask["slides"])
+            var = masked_variance((w), mask["slides"]).mean()
+            var2 = masked_mean (((w - mean.mean())**2), mask["slides"])
+
+        elif self.sources == ["omic", "slides"]:
+            z, mask = self.omic_encoder(data[0], mask)
+            w, mask = self.wsi_encoder(data[1], mask)
+            mean = masked_mean((z, w), (mask["omic"], mask["slides"]))
+
+            var = masked_variance((z, w), (mask["omic"], mask["slides"])).mean()
+            var2 = masked_mean (( (z - mean.mean())**2, (w - mean.mean())**2),\
+                                (mask["omic"], mask["slides"]))
+
 
         ratios = var/var2.mean(dim=1)
         ratio = ratios.clamp(min=0.02, max=1.0).mean()
 
         x = mean
 
-        x = self.bn1(x)
+        if self.config["train_loop.batch_size"] > 1:
+            x = self.bn1(x)
         x = F.dropout(x, 0.5, training=self.training)
         x = self.highway(x)
-        x = self.bn2(x)
+        if self.config["train_loop.batch_size"] > 1:
+            x = self.bn2(x)
 
         # TODO: convert to logits
+        logits = self.to_logits(x)
 
-        score = F.log_softmax(self.fc2(x), dim=1)
-        hazard = self.fcd(x)
+        return logits
 
-        return {"score": score, "hazard": hazard, "ratio": ratio.unsqueeze(0)}
+        # score = F.log_softmax(self.fc2(x), dim=1)
+        # hazard = self.fcd(x)
+        #
+        # return {"score": score, "hazard": hazard, "ratio": ratio.unsqueeze(0)}
 
-    # def loss(self, pred, target):
-    #
-    #     vital_status = target["vital_status"]
-    #     days_to_death = target["days_to_death"]
-    #     hazard = pred["hazard"].squeeze()
-    #
-    #     loss = F.nll_loss(pred["score"], vital_status)
-    #
-    #     _, idx = torch.sort(days_to_death)
-    #     hazard_probs = F.softmax(hazard[idx].squeeze()[1-vital_status.byte()])
-    #     hazard_cum = torch.stack([torch.tensor(0.0)] + list(accumulate(hazard_probs)))
-    #     N = hazard_probs.shape[0]
-    #     weights_cum = torch.range(1, N)
-    #     p, q = hazard_cum[1:], 1-hazard_cum[:-1]
-    #     w1, w2 = weights_cum, N - weights_cum
-    #
-    #     probs = torch.stack([p, q], dim=1)
-    #     logits = torch.log(probs)
-    #     ll1 = (F.nll_loss(logits, torch.zeros(N).long(), reduce=False) * w1)/N
-    #     ll2 = (F.nll_loss(logits, torch.ones(N).long(), reduce=False) * w2)/N
-    #     loss2 = torch.mean(ll1 + ll2)
-    #
-    #     loss3 = pred["ratio"].mean()
-    #
-    #     return loss + loss2 + loss3*0.3
+    def wsi_encoder(self, data, mask):
+        w = data
+        input_dim = w.shape[1]
+        # convolution across patches
+        conv1 = nn.Conv1d(in_channels=input_dim, out_channels=512, kernel_size=5, stride=2, padding=2,
+                          device=self.device)
+        conv2 = nn.Conv1d(in_channels=512, out_channels=self.embedding_dims, kernel_size=5, stride=2, padding=2,
+                          device=self.device)
+        global_avg_pool = nn.AdaptiveAvgPool1d(1)
+        # encoder instead of sqeeze net
+        w = conv1(w)
+        w = F.relu(w)
+        w = conv2(w)
+        w = F.relu(w)
+        w = global_avg_pool(w)
+        w = w.squeeze(-1)
+        mask["slides"] = torch.ones(w.shape[1], 1).to(self.device)
+        return w, mask
+
+    def omic_encoder(self, data, mask):
+        z = data
+        z = z.view(z.shape[0], -1)
+        self.fcg = nn.Linear(in_features=z.shape[1], out_features=self.embedding_dims, device=self.device)
+        z = torch.tanh(self.fcg(z))
+        mask["omic"] = torch.ones(z.shape[1], 1).to(self.device)
+        return z, mask
+
+    def loss(self, pred, target):
+
+        vital_status = target["vital_status"]
+        days_to_death = target["days_to_death"]
+        hazard = pred["hazard"].squeeze()
+
+        loss = F.nll_loss(pred["score"], vital_status)
+
+        _, idx = torch.sort(days_to_death)
+        hazard_probs = F.softmax(hazard[idx].squeeze()[1-vital_status.byte()])
+        hazard_cum = torch.stack([torch.tensor(0.0)] + list(accumulate(hazard_probs)))
+        N = hazard_probs.shape[0]
+        weights_cum = torch.range(1, N)
+        p, q = hazard_cum[1:], 1-hazard_cum[:-1]
+        w1, w2 = weights_cum, N - weights_cum
+
+        probs = torch.stack([p, q], dim=1)
+        logits = torch.log(probs)
+        ll1 = (F.nll_loss(logits, torch.zeros(N).long(), reduce=False) * w1)/N
+        ll2 = (F.nll_loss(logits, torch.ones(N).long(), reduce=False) * w2)/N
+        loss2 = torch.mean(ll1 + ll2)
+
+        loss3 = pred["ratio"].mean()
+
+        return loss + loss2 + loss3*0.3
 
     # def score(self, pred, target):
     #     vital_status = target["vital_status"]
@@ -337,7 +391,7 @@ class Highway(nn.Module):
     def forward(self, x):
 
         for layer in range(self.num_layers):
-            gate = F.sigmoid(self.gate[layer](x))
+            gate = torch.sigmoid(self.gate[layer](x))
             nonlinear = self.f(self.nonlinear[layer](x))
             linear = self.linear[layer](x)
             x = gate * nonlinear + (1 - gate) * linear

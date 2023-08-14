@@ -1,33 +1,35 @@
 method: bayes
 metric:
   goal: maximize
-  name: val_c_index
+  name: mean_test_c_index
 parameters:
-  model_params.output_dims:
-    value: 4
-  model_params.weight_decay:
+  sources:
+    value: ["omic", "slides"]
+  explainer:
+    value: False
+  n_folds:
+    value: 5
+  train_loop.epochs:
+      value: 50
+  train_loop.patience:
+      value: 5
+  train_loop.batch_size:
+      value: 8
+  model_params.l1:
     distribution: uniform
-    min: 0
-    max: 0.001
-  model_params.num_freq_bands:
-    distribution: int_uniform
-    min: 2
-    max: 8
+    min: 0.0
+    max: 0.0005
   model_params.depth:
     distribution: int_uniform
-    min: 1
-    max: 6
-  model_params.max_freq:
-    distribution: int_uniform
-    min: 2.
-    max: 8.
+    min: 2
+    max: 5
   model_params.num_latents:
     distribution: int_uniform
-    min: 4
-    max: 128
+    min: 8
+    max: 32
   model_params.latent_dim:
     distribution: int_uniform
-    min: 4
+    min: 16
     max: 128
   model_params.cross_dim_head:
     distribution: int_uniform
@@ -39,20 +41,13 @@ parameters:
     max: 128
   model_params.attn_dropout:
     distribution: uniform
-    min: 0
-    max: 0.9
+    min: 0.0
+    max: 0.5
   model_params.ff_dropout:
-    distribution: uniform
-    min: 0
-    max: 0.9
+    min: 0.0
+    max: 0.5
   optimizer.lr:
     distribution: uniform
-    max: 0.002
-    min: 0.0005
-  optimizer.momentum:
-    distribution: uniform
-    max: 0.95
-    min: 0.85
-  wandb:
-    value: "True"
+    min: 0.0001
+    max: 0.01
 program: x_perceiver/main.py

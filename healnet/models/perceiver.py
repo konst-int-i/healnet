@@ -66,7 +66,7 @@ class PreNorm(nn.Module):
 
         return self.fn(x, **kwargs)
 
-class GEGLU(nn.Module):
+class GELU(nn.Module):
     def forward(self, x):
         x, gates = x.chunk(2, dim = -1)
         return x * F.gelu(gates)
@@ -76,19 +76,40 @@ class SELU(nn.Module):
         x, gates = x.chunk(2, dim = -1)
         return x * F.selu(gates)
 
+class RELU(nn.Module):
+    def forward(self, x):
+        x, gates = x.chunk(2, dim = -1)
+        return x * F.relu(gates)
+
+
 class FeedForward(nn.Module):
-    def __init__(self, dim, mult = 4, dropout = 0.):
+    def __init__(self, dim, mult = 4, dropout = 0., snn: bool = False):
         super().__init__()
+        activation = SELU() if snn else GELU()
         self.net = nn.Sequential(
             nn.Linear(dim, dim * mult * 2),
-            SELU(),
-            # GEGLU(),
+            activation,
             nn.Linear(dim * mult, dim),
             nn.Dropout(dropout)
         )
 
     def forward(self, x):
         return self.net(x)
+
+
+def temperature_softmax(logits, temperature=1.0, dim=-1):
+    """
+    Temperature scaled softmax
+    Args:
+        logits:
+        temperature:
+        dim:
+
+    Returns:
+    """
+    scaled_logits = logits / temperature
+    return F.softmax(scaled_logits, dim=dim)
+
 
 
 class Attention(nn.Module):
@@ -110,7 +131,17 @@ class Attention(nn.Module):
             nn.LeakyReLU(negative_slope=1e-2)
         )
 
-        # self.to_out = nn.Linear(inner_dim, query_dim)
+        self.attn_weights = None
+        # self._init_weights()
+
+    def _init_weights(self):
+    # Use He initialization for Linear layers
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+                # Initialize bias to zero if there's any
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
 
     def forward(self, x, context = None, mask = None):
         h = self.heads
@@ -130,8 +161,11 @@ class Attention(nn.Module):
             sim.masked_fill_(~mask, max_neg_value)
 
         # attention, what we cannot get enough of
-        attn = sim.softmax(dim = -1)
+        # attn = sim.softmax(dim = -1)
+        attn = temperature_softmax(sim, temperature=0.5, dim=-1)
+        self.attn_weights = attn
         attn = self.dropout(attn)
+
 
         out = einsum('b i j, b j d -> b i d', attn, v)
         out = rearrange(out, '(b h) n d -> b n (h d)', h = h)
@@ -161,7 +195,8 @@ class HealNet(nn.Module):
         weight_tie_layers: bool = False,
         fourier_encode_data: bool = True,
         self_per_cross_attn: int = 1,
-        final_classifier_head: bool = True
+        final_classifier_head: bool = True,
+        snn: bool = True,
     ):
         super().__init__()
         assert len(input_channels) == len(input_axes), 'input channels and input axis must be of the same length'
@@ -195,8 +230,8 @@ class HealNet(nn.Module):
         cross_attn_funcs = tuple(map(cache_fn, tuple(funcs)))
 
         get_latent_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, heads = latent_heads, dim_head = latent_dim_head, dropout = attn_dropout))
-        get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
-        get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout))
+        get_cross_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout, snn = snn))
+        get_latent_ff = lambda: PreNorm(latent_dim, FeedForward(latent_dim, dropout = ff_dropout, snn = snn))
 
         get_cross_ff, get_latent_attn, get_latent_ff = map(cache_fn, (get_cross_ff, get_latent_attn, get_latent_ff))
 
@@ -279,10 +314,17 @@ class HealNet(nn.Module):
 
         return self.to_logits(x)
 
-
-
-
-
+    def get_attention_weights(self) -> List[torch.Tensor]:
+        """
+        Helper function which returns all attention weights for all attention layers in the model
+        Returns:
+            all_attn_weights: list of attention weights for each attention layer
+        """
+        all_attn_weights = []
+        for module in self.modules():
+            if isinstance(module, Attention):
+                all_attn_weights.append(module.attn_weights)
+        return all_attn_weights
 
 
 

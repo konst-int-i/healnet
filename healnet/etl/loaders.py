@@ -32,6 +32,7 @@ class TCGADataset(Dataset):
                  num_classes: int = 2,
                  n_bins: int = 4,
                  sources: List = ["omic", "slides"],
+                 log_dir = None,
                  ):
         """
         Dataset wrapper to load different TCGA data modalities (omic and WSI data).
@@ -54,7 +55,9 @@ class TCGADataset(Dataset):
             >>>
         """
         self.config = config
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.dataset = dataset
+        self.log_dir = log_dir
         self.sources = sources
         self.filter_overlap = filter_overlap
         self.survival_analysis = survival_analysis
@@ -82,9 +85,12 @@ class TCGADataset(Dataset):
         self.omic_df = self.load_omic()
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.omic_tensor = torch.Tensor(self.features.values)
-        if self.config.model in ["healnet"]:
-            # Perceiver model expects inputs of the shape (batch_size, sequence_length, input_dim)
-            self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n seq_length feat", seq_length=1)
+        if self.config.model in ["healnet", "healnet_early"]:
+            # Perceiver model expects inputs of the shape (batch_size, input_dim, channels)
+            if self.config.omic_attention:
+                self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n feat channels", channels=1)
+            else:
+                self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n channels feat", channels=1)
 
 
         self.level = level
@@ -94,8 +100,9 @@ class TCGADataset(Dataset):
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
 
-        manager = Manager()
-        self.patch_cache = manager.dict()
+        # manager = Manager()
+        # self.patch_cache = manager.dict()
+        self.patch_cache = SharedLRUCache(capacity=100)
         print(f"Dataloader initialised for {dataset} dataset")
         self.get_info(full_detail=False)
 
@@ -103,6 +110,8 @@ class TCGADataset(Dataset):
         y_disc = self.y_disc[index]
         censorship = self.censorship[index]
         event_time = self.survival_months[index]
+
+
         if len(self.sources) == 1 and self.sources[0] == "omic":
             omic_tensor = self.omic_tensor[index]
             return [omic_tensor], censorship, event_time, y_disc
@@ -110,11 +119,18 @@ class TCGADataset(Dataset):
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
 
+            # if self.config.model == "mm_prognosis": # raw WSI
+            #     slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
+            #     return [slide_tensor], censorship, event_time, y_disc
+
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
-                self.patch_cache[index] = slide_tensor
+                self.patch_cache.set(index, slide_tensor)
+                # self.patch_cache[index] = slide_tensor
+
             else:
-                slide_tensor = self.patch_cache[index]
+                # slide_tensor = self.patch_cache[index]
+                slide_tensor = self.patch_cache.get(index)
             if self.config.model == "fcnn": # for fcnn baseline
                 slide_tensor = torch.flatten(slide_tensor)
 
@@ -126,9 +142,12 @@ class TCGADataset(Dataset):
 
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
-                self.patch_cache[index] = slide_tensor
+                # self.patch_cache[index] = slide_tensor
+                self.patch_cache.set(index, slide_tensor)
             else:
-                slide_tensor = self.patch_cache[index]
+                # slide_tensor = self.patch_cache[index]
+                slide_tensor = self.patch_cache.get(index)
+
 
             if self.concat: # for early fusion baseline
                 slide_flat = torch.flatten(slide_tensor)
@@ -207,8 +226,7 @@ class TCGADataset(Dataset):
         print(f"Slide resize dimensions: w: {self.wsi_width}, h: {self.wsi_height}")
         print(f"Sources selected: {self.sources}")
         print(f"Censored share: {np.round(len(self.omic_df[self.omic_df['censorship'] == 1])/len(self.omic_df), 3)}")
-        print(f"Survival_bin_sizes: \n {self.omic_df['y_disc'].value_counts()}")
-        # print(f"Target column: {self.target_col}")
+        print(f"Survival_bin_sizes: {dict(self.omic_df['y_disc'].value_counts().sort_values())}")
 
         if full_detail:
             pprint(dict(self.sample_slide.properties))
@@ -295,6 +313,9 @@ class TCGADataset(Dataset):
 
         df["y_disc"] = df["y_disc"].astype(int)
 
+        if self.log_dir is not None:
+            df.to_csv(self.log_dir.joinpath(f"{self.dataset}_omic_overlap.csv.zip"), compression="zip")
+
         return df
 
     def load_wsi(self, slide_id: str, level: int = None) -> Tuple:
@@ -358,10 +379,41 @@ class TCGADataset(Dataset):
         load_path = self.prep_path.joinpath(f"patch_features/{slide_id}.pt")
         with open(load_path, "rb") as file:
             patch_features = torch.load(file, weights_only=True)
-        patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
+            # attention at the patch-level
+            # patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
         return patch_features
 
 
+
+class SharedLRUCache:
+    def __init__(self, capacity: int):
+        manager = Manager()
+        self.capacity = capacity
+        self.cache = manager.dict()
+        self.order = manager.list()
+
+    def get(self, key: int):
+        if key in self.cache:
+            # Move key to end to show it was recently used.
+            self.order.remove(key)
+            self.order.append(key)
+            return self.cache[key]
+        else:
+            return None
+
+    def set(self, key: int, value):
+        if key in self.cache:
+            self.order.remove(key)
+        else:
+            if len(self.order) >= self.capacity:
+                removed_key = self.order.pop(0)  # Remove the first (least recently used) item.
+                del self.cache[removed_key]
+
+        self.order.append(key)
+        self.cache[key] = value
+
+    def __contains__(self, key):
+        return key in self.cache
 
 def count_open_files():
     return len(os.listdir(f'/proc/{os.getpid()}/fd'))

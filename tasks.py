@@ -138,6 +138,13 @@ def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", s
         num_slides = len(slide_ids)
         # extract features
         for slide_count, slide_id in enumerate(coords.keys()):
+            feat_path = prep_path.joinpath("patch_features")
+            save_path = feat_path.joinpath(f"{slide_id}.pt")
+            # check if features already extracted
+            if os.path.exists(save_path):
+                print(f"Features already extracted for slide {slide_id}, skipping...")
+                continue
+
             slide = OpenSlide(raw_path.joinpath(f"{slide_id}.svs"))
             print(f"slide {slide_count+1}/{num_slides}")
 
@@ -158,10 +165,8 @@ def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", s
                 patch_tensors[idx] = patch_features.cpu().detach().squeeze()
 
             # save features
-            feat_path = prep_path.joinpath("patch_features")
             if not feat_path.exists():
                 feat_path.mkdir(parents=False)
-            save_path = feat_path.joinpath(f"{slide_id}.pt")
             torch.save(patch_tensors, save_path)
 
 
