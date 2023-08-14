@@ -50,7 +50,12 @@ class Explainer(object):
         self.model = self.load_model()
         self.model.eval()
 
-    def run(self, n_high: int = 3, n_low: int = 0, downsample: float = None):
+    def run(self, n_high: int = 3, n_low: int = 0,
+            downsample: float = None,
+            run_omic: bool = True,
+            run_slides: bool = True,
+            heatmap: bool = True,
+            highlight_patches: bool = True):
         """
         Run explanation for n_high high risk patients and n_low low risk patients
         Args:
@@ -62,16 +67,18 @@ class Explainer(object):
         """
         self.high_risk = self.get_patients(risk="high", n=n_high)
         self.low_risk = self.get_patients(risk="low", n=n_low)
+        self.heatmap = heatmap
+        self.highlight_patches = highlight_patches
 
         # high risk
         # for i in range(n_high):
         for i in [2]: # final run
             self.save_name = f"high_risk_{i}"
-            self.run_sample_explanation(self.high_risk[i:i+1], downsample=downsample)
+            self.run_sample_explanation(self.high_risk[i:i+1], downsample=downsample, run_omic=run_omic, run_slides=run_slides)
 
         # low risk
         for i in range(n_low):
-            self.run_sample_explanation(self.low_risk[i:i+1], downsample=downsample)
+            self.run_sample_explanation(self.low_risk[i:i+1], downsample=downsample, run_omic=run_omic, run_slides=run_slides)
 
 
 
@@ -151,6 +158,8 @@ class Explainer(object):
             omic_attn = torch.mean(omic_attn[layer_to_viz], dim=1).detach().cpu().numpy()
         feats = self.data.features.columns.tolist()
         plot_df = pd.DataFrame({"feature": feats, "attention": omic_attn.squeeze()}).sort_values(by="attention", ascending=False)
+        # filter "age" (not omic feature)
+        plot_df = plot_df[~plot_df["feature"].str.contains("age")]
         # take top scale_fraction features
         # plot_df = plot_df.iloc[:int(scale_fraction * len(feats))]
 
@@ -179,7 +188,7 @@ class Explainer(object):
         plt.subplots_adjust(left=0.3)
         save_path = self.expl_dir.joinpath(f"{self.save_name}_omic_attn.png")
         print(f"Saving to {save_path}")
-        plt.savefig(self.expl_dir.joinpath(f"{self.save_name}_omic_attn.png"), dpi=300)
+        plt.savefig(self.expl_dir.joinpath(f"{self.save_name}_omic_attn.png"))
         if self.show:
             plt.show()
 
@@ -213,8 +222,16 @@ class Explainer(object):
             patch_size = (int(patch_size[0] * downsample), int(patch_size[1] * downsample))
 
 
-        self.create_heatmap(slide_img=slide_img, patch_size=patch_size, df=plot_df, show=True, layer=layer)
-        self.highlight_top_patches(slide_img=slide_img, df=plot_df, patch_size=patch_size, show=True, layer=layer)
+        if self.heatmap:
+            self.create_heatmap(slide_img=slide_img, patch_size=patch_size, df=plot_df, show=True, layer=layer)
+        if self.highlight_patches:
+            self.highlight_top_patches(slide_img=slide_img, df=plot_df, patch_size=patch_size, show=True, layer=layer)
+
+        # save original image
+        plt.imshow(save_img)
+        plt.axis('off')
+        save_path = self.expl_dir.joinpath(f"{self.save_name}_original.png")
+        plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
         # save top 5 patches as images
         top_df = plot_df.sort_values(by='attention_scaled', ascending=False).head(5)
@@ -226,7 +243,7 @@ class Explainer(object):
             plt.imshow(patch)
             plt.axis('off')
             save_path = self.expl_dir.joinpath(f"{self.save_name}_patch_{index}.png")
-            plt.savefig(save_path, dpi=300)
+            plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
             print(f"Saving to {save_path}")
             plt.show()
 
@@ -455,7 +472,14 @@ if __name__ == "__main__":
 
     e = Explainer(log_path, show=True)
     # e.run(n_high=3, n_low=0, downsample=None)
-    e.run(n_high=3, n_low=0, downsample=None)
+    e.run(n_high=3,
+          n_low=0,
+          downsample=None,
+          run_omic=True,
+          run_slides=False,
+          heatmap=False,
+          highlight_patches=False
+          )
 
     # e.run(e.high_risk[2:3])
 
