@@ -287,16 +287,6 @@ class TCGADataset(Dataset):
             else:
                 print("100% modality overlap, no samples filtered out")
 
-
-            # start_shape = df.shape[0]
-            # # take only samples for which there are preprocessed slides available
-            # filter_keys = [slide_id + ".svs" for slide_id in self.slide_ids]
-            # df = df[df["slide_id"].isin(filter_keys)]
-            # print(f"Filtered out {start_shape - df.shape[0]} samples for which there are no slides available")
-
-        # filter slides for which there is no omic data available
-        # filter_keys = [slide_id]
-
         # assign target column (high vs. low risk in equal parts of survival)
         label_col = "survival_months"
         if self.subset == "all":
