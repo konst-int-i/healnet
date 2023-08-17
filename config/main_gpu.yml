@@ -5,7 +5,7 @@ log_path: /home/kh701/pycharm/x-perceiver/logs
 seed: 1
 hyperparams: config/best_hyperparams.yml
 
-dataset: ucec #  [blca, brca, ucec, kirp]
+dataset: kirp #  [blca, brca, ucec, kirp]
 model: healnet # [fcnn, healnet, healnet_early, mcat]
 
 explainer: False
@@ -36,7 +36,7 @@ survival: # all parameters related to survival task
 
 train_loop:
   eval_interval: 1 # evaluate on validation set every n epochs
-  batch_size: 8
+  batch_size: 4
   epochs: 50 # max training epochs
   early_stopping: True # stop training if validation loss doesn't improve for `patience` epochs
   patience: 5 # number of epochs to wait for improvement before stopping training
