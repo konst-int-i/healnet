@@ -31,6 +31,10 @@ parameters:
     distribution: int_uniform
     min: 16
     max: 128
+  model_params.cross_heads:
+    distribution: int_uniform
+    min: 1
+    max: 32
   model_params.cross_dim_head:
     distribution: int_uniform
     min: 16
