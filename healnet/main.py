@@ -102,9 +102,6 @@ class Pipeline:
         # # check that model parameters are specified
         # assert self.config.dataset in self.config.model_params.keys(), f"Model parameters not specified for dataset {self.config.dataset}"
 
-        valid_tasks = ["survival", "classification"]
-        assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
-
         valid_models = ["healnet", "fcnn", "healnet_early", "mcat", "mm_prognosis"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
@@ -226,7 +223,8 @@ class Pipeline:
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
                                 shuffle=True,
-                                num_workers=int(multiprocessing.cpu_count()),
+                                # num_workers=int(multiprocessing.cpu_count()),
+                                num_workers=8,
                                 pin_memory=True,
                                 multiprocessing_context=MP_CONTEXT,
                                 persistent_workers=True,
@@ -373,23 +371,20 @@ class Pipeline:
         """
         Trains model for survival analysis
         Args:
-            model:
-            train_data:
-            test_data:
+            model (nn.Module): model to train
+            train_data (DataLoader): training data
+            test_data (DataLoader): test data
             **kwargs:
 
         Returns:
-
+            Tuple: tuple of the model and all performance metrics for given fold
         """
         print(f"Training survival model using {self.config.model}")
-        # optimizer = t_optim.lamb.Lamb(model.parameters(), lr=self.config["optimizer.lr"])
         optimizer = optim.Adam(model.parameters(), lr=self.config["optimizer.lr"])
-        # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
                                                   max_lr=self.config["optimizer.max_lr"],
                                                   epochs=self.config["train_loop.epochs"],
                                                   steps_per_epoch=len(train_data))
-        # scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, 'min', patience=4, factor=0.1)
 
 
         early_stopping = EarlyStopping(patience=self.config["train_loop.patience"],
@@ -531,9 +526,6 @@ class Pipeline:
         # return values of final epoch
         return model, train_loss, train_c_index, val_loss, val_c_index, test_loss, test_c_index, missing_performance
 
-            # checkpoint model after epoch
-            # if epoch % self.config["train_loop.checkpoint_interval"] == 0:
-            #     torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
     def _sample_missing(self, features, use_omic, mode):
         assert mode in ["50", "omic", "wsi"], "Invalid missing ablation mode"
 
@@ -691,7 +683,7 @@ if __name__ == "__main__":
 
         grid = ParameterGrid(
             {"dataset": datasets,
-             "sources": [["omic", "slides"], ["omic"], ["slides"]],
+             "sources": [["omic", "slides"]],
              "model": ["healnet"]
              })
 
