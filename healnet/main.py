@@ -4,28 +4,17 @@ sys.path.append("/home/kh701/pycharm/x-perceiver/")
 import torch
 import torch.nn as nn
 import traceback
-from torch.autograd.profiler import profile
 from sklearn.model_selection import KFold, ParameterGrid
 import multiprocessing
-from multiprocessing import Pool
-from concurrent.futures import ProcessPoolExecutor
-import concurrent.futures
-from functools import partial
 import argparse
-from itertools import repeat
 from argparse import Namespace
 import yaml
 from tqdm import tqdm
-from healnet.train import majority_classifier_acc
-from healnet.utils import EarlyStopping, calc_reg_loss, pickle_obj, unpickle
-from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from healnet.models.explainer import Explainer
+from healnet.utils import EarlyStopping, calc_reg_loss, pickle_obj
+from healnet.models.survival_loss import CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
 from healnet.baselines import RegularizedFCNN, MMPrognosis, MCAT, SNN, MILAttentionNet
 import numpy as np
-from torchsummary import summary
-import torch_optimizer as t_optim
 from sksurv.metrics import concordance_index_censored
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 from torch import optim
 from healnet.models import HealNet
 import pandas as pd
