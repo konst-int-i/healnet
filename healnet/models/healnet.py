@@ -1,5 +1,5 @@
 """
-Based on lucidrains implementation: https://github.com/lucidrains/perceiver-pytorch
+Some of the base class implementations based on: https://github.com/lucidrains/perceiver-pytorch
 """
 
 from math import pi, log
