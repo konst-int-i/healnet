@@ -102,9 +102,9 @@ class TCGADataset(Dataset):
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
 
-        # manager = Manager()
-        # self.patch_cache = manager.dict()
-        self.patch_cache = SharedLRUCache(capacity=200)
+        manager = Manager()
+        self.patch_cache = manager.dict()
+        # self.patch_cache = SharedLRUCache(capacity=256) # capacity should be multiple of num_workers
         print(f"Dataloader initialised for {dataset} dataset")
         self.get_info(full_detail=False)
 
@@ -127,12 +127,12 @@ class TCGADataset(Dataset):
 
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
-                self.patch_cache.set(index, slide_tensor)
-                # self.patch_cache[index] = slide_tensor
+                # self.patch_cache.set(index, slide_tensor)
+                self.patch_cache[index] = slide_tensor
 
             else:
-                # slide_tensor = self.patch_cache[index]
-                slide_tensor = self.patch_cache.get(index)
+                slide_tensor = self.patch_cache[index]
+                # slide_tensor = self.patch_cache.get(index)
             if self.config.model == "fcnn": # for fcnn baseline
                 slide_tensor = torch.flatten(slide_tensor)
 
@@ -144,11 +144,11 @@ class TCGADataset(Dataset):
 
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
-                # self.patch_cache[index] = slide_tensor
-                self.patch_cache.set(index, slide_tensor)
+                self.patch_cache[index] = slide_tensor
+                # self.patch_cache.set(index, slide_tensor)
             else:
-                # slide_tensor = self.patch_cache[index]
-                slide_tensor = self.patch_cache.get(index)
+                slide_tensor = self.patch_cache[index]
+                # slide_tensor = self.patch_cache.get(index)
 
 
             if self.concat: # for early fusion baseline
