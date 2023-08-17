@@ -8,49 +8,44 @@ hyperparams: config/best_hyperparams.yml
 dataset: kirp #  [blca, brca, ucec, kirp]
 model: healnet # [fcnn, healnet, healnet_early, mcat]
 
-explainer: True
-omic_attention: True # temporary flag for debugging
+explainer: False
+missing_ablation: False
+omic_attention: False # switch off omic attention (debug mode)
 
+n_folds: 5
 
-n_folds: 3
+wandb: True # log to weights and biases (login required)
 
-wandb: True
 
 data:
-  # image preprocessing
-  resize: True # ONLY use for debugging - manually resize images
+  # Parameters for running on raw WSIs
+  resize: True #
   resize_height: 1024 # if resize is True
   resize_width: 1024 # if resize is True
-  patch_size: 256 # don't changed if used for pre-processing
-  wsi_level: 1 # WSI resolution level (if available)
-  prefetch: False
+  wsi_level: 2 # WSI resolution level (if available)
+  # Parameters for patch pre-processing
+  patch_size: 256 # don't change if used for pre-processing
 
-
-task: survival # [survival, classification]
-sources:
+sources: # select which data sources to use, list of string, valid values: omic, slides
   - omic
   - slides
-
 
 survival: # all parameters related to survival task
   loss: nll # valid: nll, ce_survival, cox
   subset: uncensored # subset used to calculate survival bin cutoffs, valid: all, censored, uncensored
 
 train_loop:
-  checkpoint_interval: 5
-  eval_interval: 1
+  eval_interval: 1 # evaluate on validation set every n epochs
   batch_size: 4
-  epochs: 50
-  # early stopping
-  early_stopping: True
-  patience: 5
+  epochs: 50 # max training epochs
+  early_stopping: True # stop training if validation loss doesn't improve for `patience` epochs
+  patience: 5 # number of epochs to wait for improvement before stopping training
 
 optimizer:
-  max_lr: 0.005
-  lr: 0.0001
-  momentum: 0.92
-  weight_decay: None
-#  weight_decay: 0.00026 # or None
+  max_lr: 0.008 # maximum learning rate for OneCycleLR scheduler
+  lr: 0.007765016508403882 # used for all
+  momentum: 0.92 # momentum
+  weight_decay: None # L2 regularisation
 
 
-# model_params are specified in config/best_hyperparams.yml
+# other `model_params` are specified in config/best_hyperparams.yml

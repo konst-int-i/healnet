@@ -1,19 +1,18 @@
 blca:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-#  l1: 0.0001
-  l1: 0.00021283165483103477
+  l1: 0.00001165096910978314
   num_freq_bands: 2
-  depth: 4
+  depth: 2
   max_freq: 2.
-  num_latents: 8
-  latent_dim: 94
-  cross_dim_head: 55
-  latent_dim_head: 40
+  num_latents: 25
+  latent_dim: 119
+  cross_dim_head: 16
+  latent_dim_head: 127
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.16013236916667006
-  ff_dropout: 0.29177496110653267
+  attn_dropout: 0.08301797961946294
+  ff_dropout: 0.47333212210978054
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
@@ -22,18 +21,18 @@ blca:
 brca:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  l1: 0.000357837136929871
+  l1: 0.00000682386175773137
   num_freq_bands: 2
-  depth: 5
+  depth: 2
   max_freq: 2.
-  num_latents: 31
-  latent_dim: 54
-  cross_dim_head: 112
-  latent_dim_head: 24
+  num_latents: 17
+  latent_dim: 126
+  cross_dim_head: 63
+  latent_dim_head: 20
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.3861295797018153
-  ff_dropout: 0.18824014464851196
+  attn_dropout: 0.45526926537716805
+  ff_dropout: 0.364741344399059
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
@@ -42,18 +41,18 @@ brca:
 kirp:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  l1: 0.00001822339581382504
+  l1: 0.00004627399922284714
   num_freq_bands: 2
   depth: 5
   max_freq: 2.
-  num_latents: 9
-  latent_dim: 59
-  cross_dim_head: 16
-  latent_dim_head: 122
+  num_latents: 17
+  latent_dim: 62
+  cross_dim_head: 27
+  latent_dim_head: 113
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.4352816237453055
-  ff_dropout: 0.3419652277963587
+  attn_dropout: 0.31789955176609086
+  ff_dropout: 0.04735283995174411
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
@@ -62,101 +61,19 @@ kirp:
 ucec:
   output_dims: 4 # refers to n_classes for classification, n_bins for survival
   class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-  l1: 0.00045741469206032984
+  l1: 0.00031851345313479773
   num_freq_bands: 2
-  depth: 3
+  depth: 2
   max_freq: 2.
   num_latents: 16
-  latent_dim: 34
-  cross_dim_head: 102
-  latent_dim_head: 82
+  latent_dim: 65
+  cross_dim_head: 103
+  latent_dim_head: 51
   cross_heads: 1
   latent_heads: 8
-  attn_dropout: 0.2532523112064847
-  ff_dropout: 0.20502420259087328
-
+  attn_dropout: 0.24884810910180033
+  ff_dropout: 0.05707504857865214
   fourier_encode_data: True
   self_per_cross_attn: 0  # if 0, no self attention at all
   weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
   snn: True
-
-
-
-
-#### OLD ####
-#blca:
-#  output_dims: 4 # refers to n_classes for classification, n_bins for survival
-#  class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-##  l1: 0.0001
-#  l1: 0.0
-#  num_freq_bands: 2
-#  depth: 2
-#  max_freq: 2.
-#  num_latents: 4
-#  latent_dim: 16
-#  cross_dim_head: 16
-#  latent_dim_head: 16
-#  cross_heads: 1
-#  latent_heads: 8
-#  attn_dropout: 0.5
-#  ff_dropout: 0.5
-#  fourier_encode_data: True
-#  self_per_cross_attn: 0  # if 0, no self attention at all
-#  weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
-#
-#brca:
-#  output_dims: 4 # refers to n_classes for classification, n_bins for survival
-#  class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-#  l1: 0.000078
-#  num_freq_bands: 2
-#  depth: 4
-#  max_freq: 2.
-#  num_latents: 8
-#  latent_dim: 32
-#  cross_dim_head: 34
-#  latent_dim_head: 102
-#  cross_heads: 1
-#  latent_heads: 8
-#  attn_dropout: 0.5
-#  ff_dropout: 0.5
-#  fourier_encode_data: True
-#  self_per_cross_attn: 0  # if 0, no self attention at all
-#  weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
-#
-#kirp:
-#  output_dims: 4 # refers to n_classes for classification, n_bins for survival
-#  class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-#  l1: 0.0002
-#  num_freq_bands: 2
-#  depth: 4
-#  max_freq: 2.
-#  num_latents: 16
-#  latent_dim: 104
-#  cross_dim_head: 128
-#  latent_dim_head: 84
-#  cross_heads: 1
-#  latent_heads: 8
-#  attn_dropout: 0.5
-#  ff_dropout: 0.5
-#  fourier_encode_data: True
-#  self_per_cross_attn: 0  # if 0, no self attention at all
-#  weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large
-#
-#ucec:
-#  output_dims: 4 # refers to n_classes for classification, n_bins for survival
-#  class_weights: inverse # one of inverse, inverse_root, None; only relevant for classification, not survival
-#  l1: 0.00005
-#  num_freq_bands: 2
-#  depth: 3
-#  max_freq: 2.
-#  num_latents: 14
-#  latent_dim: 38
-#  cross_dim_head: 64
-#  latent_dim_head: 64
-#  cross_heads: 1
-#  latent_heads: 8
-#  attn_dropout: 0.5
-#  ff_dropout: 0.5
-#  fourier_encode_data: True
-#  self_per_cross_attn: 0  # if 0, no self attention at all
-#  weight_tie_layers: False # share weights between layers if False | KEEP THIS, otherwise model size is quite large

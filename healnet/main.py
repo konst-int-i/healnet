@@ -102,9 +102,6 @@ class Pipeline:
         # # check that model parameters are specified
         # assert self.config.dataset in self.config.model_params.keys(), f"Model parameters not specified for dataset {self.config.dataset}"
 
-        valid_tasks = ["survival", "classification"]
-        assert self.config.task in valid_tasks, f"Invalid task specified. Valid tasks are {valid_tasks}"
-
         valid_models = ["healnet", "fcnn", "healnet_early", "mcat", "mm_prognosis"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
@@ -130,6 +127,7 @@ class Pipeline:
         train_c_indeces, val_c_indeces, test_c_indeces = [], [], []
         # test_dataloaders = []
         test_data_indices = []
+        missing_perfs = []
         models = []
         for fold in range(1, self.config["n_folds"]+1):
             print(f"*****FOLD {fold}*****")
@@ -143,10 +141,11 @@ class Pipeline:
             # test_dataloaders.append(test_data)
             model = self.make_model(train_data)
             wandb.watch(model)
-            model, _, train_c_index, _, val_c_index, _, test_c_index = self.train_survival_fold(model, train_data, val_data, test_data, fold=fold)
+            model, _, train_c_index, _, val_c_index, _, test_c_index, missing_performance = self.train_survival_fold(model, train_data, val_data, test_data, fold=fold)
             train_c_indeces.append(train_c_index)
             val_c_indeces.append(val_c_index)
             test_c_indeces.append(test_c_index)
+            missing_perfs.append(missing_performance)
             models.append(model)
 
         # log average and standard deviation across folds
@@ -160,6 +159,14 @@ class Pipeline:
 
         best_fold = np.argmax(test_c_indeces)
         best_model = models[best_fold]
+
+        # if missing, log also that
+        if self.config.missing_ablation:
+            missing_50_c_index, missing_omic_c_index, missing_wsi_c_index = np.mean(missing_perfs, axis=0)
+            wandb.log({"missing_50_c_index": missing_50_c_index,
+                       "missing_omic_c_index": missing_omic_c_index,
+                       "missing_wsi_c_index": missing_wsi_c_index})
+
 
         if self.config.explainer:
             torch.save(best_model.state_dict(), self.log_dir.joinpath("best_model.pt"))
@@ -216,7 +223,8 @@ class Pipeline:
         train_data = DataLoader(train,
                                 batch_size=self.config["train_loop.batch_size"],
                                 shuffle=True,
-                                num_workers=int(multiprocessing.cpu_count()/2),
+                                # num_workers=int(multiprocessing.cpu_count()),
+                                num_workers=8,
                                 pin_memory=True,
                                 multiprocessing_context=MP_CONTEXT,
                                 persistent_workers=True,
@@ -225,7 +233,7 @@ class Pipeline:
         val_data = DataLoader(val,
                              batch_size=self.config["train_loop.batch_size"],
                              shuffle=False,
-                             num_workers=int(multiprocessing.cpu_count()/2),
+                             num_workers=int(multiprocessing.cpu_count()),
                              pin_memory=True,
                              multiprocessing_context=MP_CONTEXT,
                              persistent_workers=True,
@@ -234,7 +242,7 @@ class Pipeline:
         test_data = DataLoader(test,
                                batch_size=self.config["train_loop.batch_size"],
                                shuffle=False,
-                               num_workers=int(multiprocessing.cpu_count()/2),
+                               num_workers=int(multiprocessing.cpu_count()),
                                pin_memory=True,
                                multiprocessing_context=MP_CONTEXT,
                                persistent_workers=True,
@@ -363,18 +371,16 @@ class Pipeline:
         """
         Trains model for survival analysis
         Args:
-            model:
-            train_data:
-            test_data:
+            model (nn.Module): model to train
+            train_data (DataLoader): training data
+            test_data (DataLoader): test data
             **kwargs:
 
         Returns:
-
+            Tuple: tuple of the model and all performance metrics for given fold
         """
         print(f"Training survival model using {self.config.model}")
-        # optimizer = t_optim.lamb.Lamb(model.parameters(), lr=self.config["optimizer.lr"])
         optimizer = optim.Adam(model.parameters(), lr=self.config["optimizer.lr"])
-        # set efficient OneCycle scheduler, significantly reduces required training iters
         scheduler = optim.lr_scheduler.OneCycleLR(optimizer=optimizer,
                                                   max_lr=self.config["optimizer.max_lr"],
                                                   epochs=self.config["train_loop.epochs"],
@@ -445,12 +451,15 @@ class Pipeline:
                 loss = loss / gc + reg_loss # gradient accumulation step
                 loss.backward()
                 optimizer.step()
-                grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in model.parameters()])).detach().cpu().numpy()
-                grad_norms.append(grad_norm)
+                # grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in model.parameters()])).detach().cpu().numpy()
+                # grad_norms.append(grad_norm)
                 optimizer.zero_grad()
+                scheduler.step()
 
-            print(f"Epoch Norm Gradient Sum: {sum(grad_norms)}")
-            print(f"Epoch Norm Gradient Mean: {np.mean(grad_norm)}")
+            # print(f"Epoch {epoch}, Last LR: {scheduler.get_last_lr()[0]}")
+
+            # print(f"Epoch Norm Gradient Sum: {sum(grad_norms)}")
+            # print(f"Epoch Norm Gradient Mean: {np.mean(grad_norm)}")
 
             train_loss /= len(train_data)
             train_loss_surv /= len(train_data)
@@ -476,6 +485,7 @@ class Pipeline:
             # if epoch % self.config["train_loop.eval_interval"] == 0 or epoch == self.config["train_loop.epochs"]:
             print(f"Running validation")
             val_loss, val_c_index = self.evaluate_survival_epoch(epoch, model, val_data)
+
             print('Epoch: {}, val_loss: {:.4f}, val_c_index: {:.4f}'.format(epoch, val_loss, val_c_index))
             wandb.log({f"fold_{fold}_val_loss": val_loss, f"fold_{fold}_val_c_index": val_c_index}, step=epoch if fold == 1 else None)
 
@@ -490,17 +500,55 @@ class Pipeline:
         print('Epoch: {}, test_loss: {:.4f}, test_c_index: {:.4f}'.format(epoch, test_loss, test_c_index))
         wandb.log({f"fold_{fold}_test_loss": test_loss, f"fold_{fold}_test_c_index": test_c_index}, step=epoch if fold == 1 else None)
 
-        # return values of final epoch
-        return model, train_loss, train_c_index, val_loss, val_c_index, test_loss, test_c_index
+        # run ablation
+        missing_performance = None
+        if self.config.missing_ablation:
+            _, missing_50_c_index = self.evaluate_survival_epoch(epoch=self.config["train_loop.epochs"],
+                                                                               model=model,
+                                                                               test_data=test_data,
+                                                                               missing_mode="50")
+            _, missing_omic_c_index = self.evaluate_survival_epoch(epoch=self.config["train_loop.epochs"],
+                                                                               model=model,
+                                                                               test_data=test_data,
+                                                                               missing_mode="omic")
+            _, missing_wsi_c_index = self.evaluate_survival_epoch(epoch=self.config["train_loop.epochs"],
+                                                                               model=model,
+                                                                               test_data=test_data,
+                                                                               missing_mode="wsi")
+            # wandb.log({f"fold_{fold}_missing_50_loss": missing_50_loss, f"fold_{fold}_missing_50_c_index": missing_50_c_index}, step=epoch if fold == 1 else None)
+            # wandb.log({f"fold_{fold}_missing_omic_loss": missing_omic_loss, f"fold_{fold}_missing_omic_c_index": missing_omic_c_index}, step=epoch if fold == 1 else None)
+            # wandb.log({f"fold_{fold}_missing_wsi_loss": missing_wsi_loss, f"fold_{fold}_missing_wsi_c_index": missing_wsi_c_index}, step=epoch if fold == 1 else None)
 
-            # checkpoint model after epoch
-            # if epoch % self.config["train_loop.checkpoint_interval"] == 0:
-            #     torch.save(model.state_dict(), f"{self.log_path}/model_epoch_{epoch}.pt")
+            missing_performance = (missing_50_c_index, missing_omic_c_index, missing_wsi_c_index)
+
+
+
+        # return values of final epoch
+        return model, train_loss, train_c_index, val_loss, val_c_index, test_loss, test_c_index, missing_performance
+
+    def _sample_missing(self, features, use_omic, mode):
+        assert mode in ["50", "omic", "wsi"], "Invalid missing ablation mode"
+
+        if mode == "50":
+            if use_omic:
+                use_omic = False
+                return [features[0]], use_omic
+            else:
+                use_omic = True
+                return [features[1]], use_omic
+        elif mode == "omic":
+            # return only WSIs
+            return [features[1]], None
+        elif mode == "wsi":
+            # return only omic
+            return [features[0]], None
+
 
     def evaluate_survival_epoch(self,
                                 epoch: int,
                                 model: nn.Module,
                                 test_data: DataLoader,
+                                missing_mode: str=None,
                                 # loss_reg: float=0.0,
                                 **kwargs):
 
@@ -511,9 +559,12 @@ class Pipeline:
         predictions = []
         labels = []
         val_loss_surv, val_loss = 0.0, 0.0
+        use_omic = True
 
         for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(test_data)):
             # only move to GPU now (use CPU for preprocessing)
+            if missing_mode is not None: # handle for missing modality ablation
+                features, use_omic = self._sample_missing(features, use_omic, missing_mode)
             features = [feat.to(self.device) for feat in features]
             censorship = censorship.to(self.device)
             event_time = event_time.to(self.device)
@@ -632,7 +683,7 @@ if __name__ == "__main__":
 
         grid = ParameterGrid(
             {"dataset": datasets,
-             "sources": [["omic", "slides"], ["omic"], ["slides"]],
+             "sources": [["omic", "slides"]],
              "model": ["healnet"]
              })
 

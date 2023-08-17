@@ -4,6 +4,7 @@ from torchvision import transforms
 from healnet.utils import Config
 from openslide import OpenSlide
 import os
+from multiprocessing import Lock
 from multiprocessing import Pool, cpu_count, Manager
 import torchvision.models as models
 import h5py
@@ -61,6 +62,7 @@ class TCGADataset(Dataset):
         self.sources = sources
         self.filter_overlap = filter_overlap
         self.survival_analysis = survival_analysis
+        self.sample_missing = False
         self.num_classes = num_classes
         self.n_bins = n_bins
         self.subset = self.config["survival.subset"]
@@ -100,9 +102,9 @@ class TCGADataset(Dataset):
         self.survival_months = self.omic_df["survival_months"].values
         self.y_disc = self.omic_df["y_disc"].values
 
-        # manager = Manager()
-        # self.patch_cache = manager.dict()
-        self.patch_cache = SharedLRUCache(capacity=100)
+        manager = Manager()
+        self.patch_cache = manager.dict()
+        # self.patch_cache = SharedLRUCache(capacity=256) # capacity should be multiple of num_workers
         print(f"Dataloader initialised for {dataset} dataset")
         self.get_info(full_detail=False)
 
@@ -125,12 +127,12 @@ class TCGADataset(Dataset):
 
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
-                self.patch_cache.set(index, slide_tensor)
-                # self.patch_cache[index] = slide_tensor
+                # self.patch_cache.set(index, slide_tensor)
+                self.patch_cache[index] = slide_tensor
 
             else:
-                # slide_tensor = self.patch_cache[index]
-                slide_tensor = self.patch_cache.get(index)
+                slide_tensor = self.patch_cache[index]
+                # slide_tensor = self.patch_cache.get(index)
             if self.config.model == "fcnn": # for fcnn baseline
                 slide_tensor = torch.flatten(slide_tensor)
 
@@ -142,11 +144,11 @@ class TCGADataset(Dataset):
 
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
-                # self.patch_cache[index] = slide_tensor
-                self.patch_cache.set(index, slide_tensor)
+                self.patch_cache[index] = slide_tensor
+                # self.patch_cache.set(index, slide_tensor)
             else:
-                # slide_tensor = self.patch_cache[index]
-                slide_tensor = self.patch_cache.get(index)
+                slide_tensor = self.patch_cache[index]
+                # slide_tensor = self.patch_cache.get(index)
 
 
             if self.concat: # for early fusion baseline
@@ -391,26 +393,28 @@ class SharedLRUCache:
         self.capacity = capacity
         self.cache = manager.dict()
         self.order = manager.list()
-
+        self.lock = Lock()
     def get(self, key: int):
-        if key in self.cache:
-            # Move key to end to show it was recently used.
-            self.order.remove(key)
-            self.order.append(key)
-            return self.cache[key]
-        else:
-            return None
+        with self.lock:
+            if key in self.cache:
+                # Move key to end to show it was recently used.
+                self.order.remove(key)
+                self.order.append(key)
+                return self.cache[key]
+            else:
+                return None
 
     def set(self, key: int, value):
-        if key in self.cache:
-            self.order.remove(key)
-        else:
-            if len(self.order) >= self.capacity:
-                removed_key = self.order.pop(0)  # Remove the first (least recently used) item.
-                del self.cache[removed_key]
+        with self.lock:
+            if key in self.cache:
+                self.order.remove(key)
+            else:
+                if len(self.order) >= self.capacity:
+                    removed_key = self.order.pop(0)  # Remove the first (least recently used) item.
+                    del self.cache[removed_key]
 
-        self.order.append(key)
-        self.cache[key] = value
+            self.order.append(key)
+            self.cache[key] = value
 
     def __contains__(self, key):
         return key in self.cache
