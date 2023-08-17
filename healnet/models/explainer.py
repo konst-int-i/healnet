@@ -1,5 +1,6 @@
 from pathlib import Path
 from box import Box
+import random
 # from torch.utils.data import DataLoader
 from healnet.etl import TCGADataset
 from copy import deepcopy
@@ -55,7 +56,8 @@ class Explainer(object):
             run_omic: bool = True,
             run_slides: bool = True,
             heatmap: bool = True,
-            highlight_patches: bool = True):
+            highlight_patches: bool = True,
+            save_patches: bool=True):
         """
         Run explanation for n_high high risk patients and n_low low risk patients
         Args:
@@ -72,17 +74,18 @@ class Explainer(object):
 
         # high risk
         # for i in range(n_high):
-        for i in [2]: # final run
+        for i in [2,3,5]:
+        # for i in [2]: # final run
             self.save_name = f"high_risk_{i}"
-            self.run_sample_explanation(self.high_risk[i:i+1], downsample=downsample, run_omic=run_omic, run_slides=run_slides)
+            self.run_sample_explanation(self.high_risk[i:i+1], downsample=downsample, run_omic=run_omic, run_slides=run_slides, save_patches=save_patches)
 
         # low risk
         for i in range(n_low):
-            self.run_sample_explanation(self.low_risk[i:i+1], downsample=downsample, run_omic=run_omic, run_slides=run_slides)
+            self.run_sample_explanation(self.low_risk[i:i+1], downsample=downsample, run_omic=run_omic, run_slides=run_slides, save_patches=save_patches)
 
 
 
-    def run_sample_explanation(self, sample: str, run_omic: bool = True, run_slides: bool = True, downsample: float = None):
+    def run_sample_explanation(self, sample: str, run_omic: bool = True, run_slides: bool = True, downsample: float = None, save_patches:bool=True):
         idx, slide_id = sample.index[0], sample.iloc[0]
         patch_coords = self.load_patch_coords(sample.iloc[0])
         self.slide, region = self.load_wsi(sample.iloc[0], level=self.level)
@@ -101,17 +104,12 @@ class Explainer(object):
         omic_attn = [w for w in attn_weights if w.shape[2] == n_features]
 
         k = 20
-        # self.color="YlGn"
-        # self.color = "RdGy_r"
-        # self.pallete = sns.light_palette(self.color, n_colors=k)[::-1]
-        # self.color = "Oranges"
-        self.color = "Reds"
-        # self.color = "Blues"
+        self.color = "Blues"
         self.pallete = sns.color_palette(self.color, n_colors=k)[::-1] # reverse order to get increasingly darker
 
         if len(omic_attn) > 0 and run_omic:
             # plot average
-            self.plot_omic_attn(omic_attn, agg_layers=True, k=k)
+            self.plot_omic_attn(omic_attn, agg_layers=False, k=k)
             # plot_by layer
             # for i in range(len(omic_attn)):
             #     self.plot_omic_attn(omic_attn, layer=i, agg_layers=False)
@@ -120,13 +118,21 @@ class Explainer(object):
             print(f"Reading slide...")
 
             slide_img = self.slide.read_region(location=(0, 0), level=self.level, size=self.slide.level_dimensions[self.level])
+
+            # save original image
+            plt.imshow(slide_img)
+            plt.axis('off')
+            save_path = self.expl_dir.joinpath(f"{self.save_name}_original.png")
+            slide_img.save(save_path)
+            # plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+            plt.show()
+
             slide_img = np.array(slide_img)[:, :, :3]  # Convert PIL image to array and remove alpha if present
 
             # pick layer with highest std deviation across patches
             layer_to_viz = np.argmax([torch.std(w).detach().cpu() for w in slide_attn])
             # None --> mean across all layers
-            self.plot_slide_attn(slide_img, slide_attn, patch_coords, layer=None, downsample=downsample)
-
+            self.plot_slide_attn(slide_img, slide_attn, patch_coords, layer=None, downsample=downsample, save_patches=save_patches)
 
 
 
@@ -158,8 +164,8 @@ class Explainer(object):
             omic_attn = torch.mean(omic_attn[layer_to_viz], dim=1).detach().cpu().numpy()
         feats = self.data.features.columns.tolist()
         plot_df = pd.DataFrame({"feature": feats, "attention": omic_attn.squeeze()}).sort_values(by="attention", ascending=False)
-        # filter "age" (not omic feature)
-        plot_df = plot_df[~plot_df["feature"].str.contains("age")]
+        # filter "age" and "is_female" (not omic feature)
+        plot_df = plot_df[~plot_df["feature"].str.contains("age|is_female")]
         # take top scale_fraction features
         # plot_df = plot_df.iloc[:int(scale_fraction * len(feats))]
 
@@ -192,9 +198,8 @@ class Explainer(object):
         if self.show:
             plt.show()
 
-    def plot_slide_attn(self, slide_img, slide_attn, patch_coords, layer: int=0, downsample: float = None):
+    def plot_slide_attn(self, slide_img, slide_attn, patch_coords, layer: int=0, downsample: float = None, save_patches: bool=True):
 
-        save_img = deepcopy(slide_img)
         patch_size = (256, 256)
         if layer is None:
             # take mean across all layers
@@ -221,41 +226,36 @@ class Explainer(object):
             plot_df['y_scaled'] = (plot_df['y_scaled'] * downsample).astype(int)
             patch_size = (int(patch_size[0] * downsample), int(patch_size[1] * downsample))
 
-
-        if self.heatmap:
-            self.create_heatmap(slide_img=slide_img, patch_size=patch_size, df=plot_df, show=True, layer=layer)
         if self.highlight_patches:
             self.highlight_top_patches(slide_img=slide_img, df=plot_df, patch_size=patch_size, show=True, layer=layer)
+        if self.heatmap:
+            self.create_heatmap(slide_img=slide_img, patch_size=patch_size, df=plot_df, show=True, layer=layer)
 
-        # save original image
-        plt.imshow(save_img)
-        plt.axis('off')
-        save_path = self.expl_dir.joinpath(f"{self.save_name}_original.png")
-        plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
 
         # save top 5 patches as images
-        top_df = plot_df.sort_values(by='attention_scaled', ascending=False).head(5)
-        for index, row in top_df.iterrows():
-            x, y = int(row['x_scaled']), int(row['y_scaled'])
-            patch = slide_img[y:y+patch_size[1], x:x+patch_size[0]]
-            plt.imshow(patch)
-            plt.axis('off')
-            save_path = self.expl_dir.joinpath(f"{self.save_name}_patch_{index}.png")
-            plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
-            print(f"Saving to {save_path}")
-            plt.show()
+        if save_patches:
+            top_df = plot_df.sort_values(by='attention_scaled', ascending=False).head(5)
+            for index, row in top_df.iterrows():
+                x, y = int(row['x_scaled']), int(row['y_scaled'])
+                patch = slide_img[y:y+patch_size[1], x:x+patch_size[0]]
+                plt.imshow(patch)
+                plt.axis('off')
+                save_path = self.expl_dir.joinpath(f"{self.save_name}_patch_{index}.png")
+                plt.savefig(save_path, bbox_inches='tight', pad_inches=0)
+                print(f"Saving to {save_path}")
+                plt.show()
 
-        # also save in highest res
-        for index, row in top_df.iterrows():
-            x, y = int(row["x"]), int(row["y"])
-            patch_size_orig = (256 * scale_factor, 256*scale_factor)
-            print(patch_size_orig)
-            patch = self.slide.read_region(location=(x, y), level=0, size=patch_size_orig)
-            save_path = self.expl_dir.joinpath(f"{self.save_name}_patch_{index}_high_res.png")
-            patch.save(save_path)
-            plt.imshow(patch)
-            plt.axis("off")
-            plt.show()
+            # also save in highest res
+            for index, row in top_df.iterrows():
+                x, y = int(row["x"]), int(row["y"])
+                patch_size_orig = (256 * scale_factor, 256*scale_factor)
+                print(patch_size_orig)
+                patch = self.slide.read_region(location=(x, y), level=0, size=patch_size_orig)
+                save_path = self.expl_dir.joinpath(f"{self.save_name}_patch_{index}_high_res.png")
+                patch.save(save_path)
+                plt.imshow(patch)
+                plt.axis("off")
+                plt.show()
 
 
     def highlight_top_patches(self, slide_img, df, patch_size, show=True, layer: int=1):
@@ -333,7 +333,7 @@ class Explainer(object):
 
             plt.imshow(slide_img)
             cbar_kws = {"shrink": 0.5} # colour bar scale
-            ax = sns.heatmap(heatmap, cmap=self.color, alpha=0.6,
+            ax = sns.heatmap(heatmap, cmap=self.color, alpha=0.7,
                              cbar=True, annot=False, cbar_kws=cbar_kws, mask=mask)
             # Add colorbar to represent the attention values
             cbar = ax.collections[0].colorbar
@@ -474,22 +474,25 @@ class Explainer(object):
 
 
 if __name__ == "__main__":
-    # log_path = "logs/solar-paper-2708" # ucec level 2, no omic attention
     # log_path = "logs/devoted-universe-2701" # ucec level 1, omic attentio
     # log_path = "logs/pleasant-smoke-2704" # kirp level 2 (dev), omic attention
-    log_path= "logs/rural-sky-2709" # kirp level 1, omic attention
+    # log_path= "logs/rural-sky-2709" # kirp level 1, omic attention
+    # log_path = "logs/glad-meadow-3551" # ucec level 2, omic attention
+    log_path="logs/smart-sweep-35" # ucec level 1, omic attention
+
 
     torch.multiprocessing.set_start_method("fork")
 
     e = Explainer(log_path, show=True)
     # e.run(n_high=3, n_low=0, downsample=None)
-    e.run(n_high=3,
+    e.run(n_high=10,
           n_low=0,
-          downsample=None,
+          downsample=0.25,
           run_omic=False,
           run_slides=True,
-          heatmap=False,
-          highlight_patches=False
+          heatmap=True,
+          highlight_patches=False,
+          save_patches=True,
           )
 
     # e.run(e.high_risk[2:3])
