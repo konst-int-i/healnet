@@ -393,7 +393,6 @@ class Pipeline:
             censorships = []
             event_times = []
             train_loss_surv, train_loss = 0.0, 0.0 # train_loss includes regularisation, train_loss_surve doesn't and is used for logging
-            # train_loss = 0.0
             grad_norms = []
 
             for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
@@ -443,15 +442,8 @@ class Pipeline:
                 loss = loss / gc + reg_loss # gradient accumulation step
                 loss.backward()
                 optimizer.step()
-                # grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in model.parameters()])).detach().cpu().numpy()
-                # grad_norms.append(grad_norm)
                 optimizer.zero_grad()
                 scheduler.step()
-
-            # print(f"Epoch {epoch}, Last LR: {scheduler.get_last_lr()[0]}")
-
-            # print(f"Epoch Norm Gradient Sum: {sum(grad_norms)}")
-            # print(f"Epoch Norm Gradient Mean: {np.mean(grad_norm)}")
 
             train_loss /= len(train_data)
             train_loss_surv /= len(train_data)
@@ -460,11 +452,6 @@ class Pipeline:
             censorships_full = np.concatenate(censorships)
             event_times_full = np.concatenate(event_times)
 
-            # epoch gradient norm
-            # # grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in model.parameters()]))
-            # grad_norm = self.calc_gradient_norm(model)
-            # print(grad_norm)
-            # wandb.log({f"fold_{fold}_grad_norm": grad_norm}, step=epoch if fold == 1 else None)
 
             # calculate epoch-level concordance index
             train_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full, tied_tol=1e-08)[0]
@@ -507,9 +494,6 @@ class Pipeline:
                                                                                model=model,
                                                                                test_data=test_data,
                                                                                missing_mode="wsi")
-            # wandb.log({f"fold_{fold}_missing_50_loss": missing_50_loss, f"fold_{fold}_missing_50_c_index": missing_50_c_index}, step=epoch if fold == 1 else None)
-            # wandb.log({f"fold_{fold}_missing_omic_loss": missing_omic_loss, f"fold_{fold}_missing_omic_c_index": missing_omic_c_index}, step=epoch if fold == 1 else None)
-            # wandb.log({f"fold_{fold}_missing_wsi_loss": missing_wsi_loss, f"fold_{fold}_missing_wsi_c_index": missing_wsi_c_index}, step=epoch if fold == 1 else None)
 
             missing_performance = (missing_50_c_index, missing_omic_c_index, missing_wsi_c_index)
 
@@ -617,29 +601,6 @@ class Pipeline:
             total_norm += param_norm.item() ** 2
         total_norm = total_norm ** (1. / 2)
         return total_norm
-
-# def run_plan_iter(args):
-#     iteration, params, config, cl_args = args
-#     n_folds = 3
-#     dataset, sources, model = params["dataset"], params["sources"], params["model"]
-#     # print(f"Run plan iteration {iteration+1}/{len(grid)}")
-#     print(f"New run plan iteration")
-#     print(f"Dataset: {dataset}, Sources: {sources}, Model: {model}")
-#
-#     # skip healnet_early on single modality (same as regular healnet)
-#     if model == "healnet_early" and len(sources) == 1:
-#         return None
-#     config["dataset"] = dataset
-#     config["sources"] = sources
-#     config["model"] = model
-#     config["n_folds"] = n_folds
-#     pipeline = Pipeline(
-#             config=config,
-#             args=cl_args,
-#         )
-#     pipeline.main()
-
-
 
 
 
