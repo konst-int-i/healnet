@@ -24,6 +24,10 @@ from PIL import Image
 
 
 class TCGADataset(Dataset):
+    """
+    Main dataset class for TCGA data. Loads in omic data and WSI data and returns a tuple of tensors when
+    __getitem__ is called along with survival information (censorship, event_time, discretised survival).
+    """
 
     def __init__(self, dataset: str,
                  config: Box,
@@ -38,8 +42,8 @@ class TCGADataset(Dataset):
         """
         Dataset wrapper to load different TCGA data modalities (omic and WSI data).
         Args:
-            dataset:
-            config:
+            dataset (str): TCGA dataset to load (e.g. "brca", "blca")
+            config (Box): Config object
             filter_overlap: filter omic data and/or slides that do not have a corresponding sample in the other modality
             n_bins: number of discretised bins for survival analysis
 
@@ -51,9 +55,9 @@ class TCGADataset(Dataset):
             # get omic data
             >>> dataset.omic_df
             # get sample slide
-            >>> slide, tensor = dataset.load_wsi(blca.sample_slide_id, resolution="lowest")
+            >>> slide, tensor = dataset.load_omic(blca.sample_slide_id, resolution="lowest")
             # get overall sample
-            >>>
+            >>> (slide, tensor), censorship, event_time, y_disc = next(iter(dataset))
         """
         self.config = config
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -88,7 +92,7 @@ class TCGADataset(Dataset):
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.omic_tensor = torch.Tensor(self.features.values)
         if self.config.model in ["healnet", "healnet_early"]:
-            # Perceiver model expects inputs of the shape (batch_size, input_dim, channels)
+            # Healnet expects inputs of the shape (batch_size, input_dim, channels)
             if self.config.omic_attention:
                 self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n feat channels", channels=1)
             else:
@@ -217,6 +221,14 @@ class TCGADataset(Dataset):
     #     return next(iter(self.wsi_paths.keys()))
 
     def get_info(self, full_detail: bool = False):
+        """
+        Logging util to print some basic dataset information. Normally called at the start of a pipeline run
+        Args:
+            full_detail (bool): Print all slide properties
+
+        Returns:
+            None
+        """
         slide_path = Path(self.config.tcga_path).joinpath(f"wsi/{self.dataset}/")
         print(f"Dataset: {self.dataset.upper()}")
         print(f"Molecular data shape: {self.omic_df.shape}")
@@ -234,6 +246,14 @@ class TCGADataset(Dataset):
             pprint(dict(self.sample_slide.properties))
 
     def show_samples(self, n=1):
+        """
+        Logging util to show some detailed sample stats and render the whole slide image (e.g., in a notebook)
+        Args:
+            n (int): Number of samples to show
+
+        Returns:
+            None
+        """
         # sample_df = self.omic_df.sample(n=n)
         sample_df = self.omic_df[self.omic_df["slide_id"].isin(self.wsi_paths.keys())].sample(n=n)
         for idx, row in sample_df.iterrows():
@@ -257,6 +277,16 @@ class TCGADataset(Dataset):
     def load_omic(self,
                   eps: float = 1e-6
                   ) -> pd.DataFrame:
+        """
+        Loads in omic data and returns a dataframe and filters depending on which whole slide images
+        are available, such that only samples with both omic and WSI data are kept.
+        Also calculates the discretised survival time for each sample.
+        Args:
+            eps (float): Epsilon value to add to min and max survival time to ensure all samples are included
+
+        Returns:
+            pd.DataFrame: Dataframe with omic data and discretised survival time (target)
+        """
         data_path = Path(self.config.tcga_path).joinpath(f"omic/tcga_{self.dataset}_all_clean.csv.zip")
         df = pd.read_csv(data_path, compression="zip", header=0, index_col=0, low_memory=False)
         valid_subsets = ["all", "uncensored", "censored"]
@@ -286,16 +316,6 @@ class TCGADataset(Dataset):
                 self.slide_ids = overlap
             else:
                 print("100% modality overlap, no samples filtered out")
-
-
-            # start_shape = df.shape[0]
-            # # take only samples for which there are preprocessed slides available
-            # filter_keys = [slide_id + ".svs" for slide_id in self.slide_ids]
-            # df = df[df["slide_id"].isin(filter_keys)]
-            # print(f"Filtered out {start_shape - df.shape[0]} samples for which there are no slides available")
-
-        # filter slides for which there is no omic data available
-        # filter_keys = [slide_id]
 
         # assign target column (high vs. low risk in equal parts of survival)
         label_col = "survival_months"
@@ -350,45 +370,37 @@ class TCGADataset(Dataset):
             transforms.ToTensor(),
             transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
             transforms.Resize((self.wsi_height, self.wsi_width)),
-            RearrangeTransform("c h w -> h w c") # rearrange for Perceiver architecture
+            RearrangeTransform("c h w -> h w c") # rearrange for Healnet architecture
         ])
         region_tensor = transform(region)
         return slide, region_tensor
 
-    def prefetch_patch_features(self) -> Dict:
+    def load_patch_features(self, slide_id: str) -> torch.Tensor:
         """
-        Prefetches patch features for all slides in the dataset
-        Returns:
-
-        """
-        print(f"Prefecting patch features")
-        patch_features = {}
-        for idx, slide_id in enumerate(self.slide_ids):
-            print(f"Slide {idx + 1}/{len(self.slide_ids)}")
-            _, patch_features[slide_id] = self.load_patch_features(slide_id)
-        return patch_features
-
-    def load_patch_features(self, slide_id: str) -> Tuple:
-        """
-
+        Loads patch features for a single slide from torch.pt file
         Args:
-            slide_id:
-            level:
+            slide_id (str): Slide ID
 
         Returns:
-
+            torch.Tensor: Patch features
         """
         load_path = self.prep_path.joinpath(f"patch_features/{slide_id}.pt")
         with open(load_path, "rb") as file:
             patch_features = torch.load(file, weights_only=True)
-            # attention at the patch-level
-            # patch_features = einops.rearrange(patch_features, "n_patches dims -> dims n_patches")
         return patch_features
 
 
 
 class SharedLRUCache:
+    """
+    Shared LRU cache for multiprocessing
+    """
     def __init__(self, capacity: int):
+        """
+
+        Args:
+            capacity (int): Number of items to be stored in the cache
+        """
         manager = Manager()
         self.capacity = capacity
         self.cache = manager.dict()
@@ -419,48 +431,11 @@ class SharedLRUCache:
     def __contains__(self, key):
         return key in self.cache
 
-def count_open_files():
-    return len(os.listdir(f'/proc/{os.getpid()}/fd'))
-
-
-
-    # def load_patches(self, slide_id):
-    #     """
-    #     Loads patches for a given slide_id encoded using a pretrained ResNet50 model
-    #     Args:
-    #         slide_id:
-    #
-    #     Returns:
-    #     """
-    #
-    #     # create a tensor of zeros - each sample requiring less patches will be zero-padded
-    #     patch_tensors = torch.zeros(self.max_patches, self.encoding_dims)
-    #     # patch_tensors = torch.zeros(self.patch_coords[slide_id].shape[0], 3, 256, 256)
-    #     slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
-    #
-    #     # if self.prep_path.joinpath("patch_features", f"{slide_id}.pt").exists():
-    #     #     patch_features = torch.load(self.prep_path.joinpath("patch_features", f"{slide_id}.pt"))
-    #     #     return slide, patch_features
-    #
-    #     for idx, coord in enumerate(self.patch_coords[slide_id]):
-    #         print(f"Loading patch {idx+1} of {self.patch_coords[slide_id].shape[0]}")
-    #         x, y = coord
-    #         region_transform = transforms.Compose([
-    #             transforms.Lambda(lambda image: image.convert("RGB")), # need to convert to RGB for ResNet encoding
-    #             transforms.ToTensor(),
-    #             transforms.Resize((224, 224)), # resize in line with ResNet50
-    #             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]) # ImageNet normalisation
-    #             ])
-    #         patch_size = self.config["data.patch_size"]
-    #         patch_region = region_transform(slide.read_region((x, y), level=self.level, size=(patch_size, patch_size)))
-    #         patch_region = patch_region.unsqueeze(0)
-    #         patch_features = self.patch_encoder(patch_region)
-    #         patch_tensors[idx] = patch_features.squeeze()
-    #
-    #     return slide, patch_tensors
-
 
 class RearrangeTransform(object):
+    """
+    Wrapper for einops.rearrange to pass into torchvision.transforms.Compose
+    """
     def __init__(self, pattern):
         self.pattern = pattern
 
@@ -469,26 +444,15 @@ class RearrangeTransform(object):
         return img
 
 class RepeatTransform(object):
+    """
+    Wrapper for einops.repeat to pass into torchvision.transforms.Compose
+    """
     def __init__(self, pattern, b):
         self.pattern = pattern
         self.b = b
     def __call__(self, img):
         img = repeat(img, self.pattern, b=self.b)
         return img
-
-
-# class EdgeDetectionTransform(object):
-#
-#     def __call__(self, img_tensor):
-#         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-#         edges = cv2.Canny(gray, 50, 150)
-#         # split image channels
-#         r, g, b, a = cv2.split(img)
-#
-#         edge_channel = Image.new("L", edges.size, color=128)
-#         new_image = Image.merge("RGBA")
-#         return edges
-
 
 
 if __name__ == '__main__':

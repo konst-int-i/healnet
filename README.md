@@ -1,6 +1,6 @@
 # HEALNet
 
-Explainable perceiver for multimodal tasks
+Hybrid Early-fusion Attention Learning Network
 
 ## Setup 
 
@@ -115,13 +115,13 @@ BRCA and BLCA were chosen since they have a relatively high number of patients a
 Given the configuration in `config.yml`, you can launch a single run using. Note that all below commands assume that you are in the repository root. 
 
 ```bash
-python3 x_perceiver/main.py 
+python3 healnet/main.py 
 ```
 
 You can view the available command line arguments using 
 
 ```bash
-python3 x_perceiver/main.py --help
+python3 healnet/main.py --help
 ```
 
 
@@ -130,7 +130,7 @@ python3 x_perceiver/main.py --help
 You can launch a hyperparameter search by passing the `--hyperparameter_sweep` argument. 
 
 ```bash
-python3 x_perceiver/main.py --hyperparameter_sweep
+python3 healnet/main.py --hyperparameter_sweep
 ```
 
 Note that the sweep parameters are specified in the `config/sweep.yaml` file. If a parameter is not specified as part of the parameter sweep, the program will default to whatever is configured in `config/main_gpu.yml`

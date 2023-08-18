@@ -1,4 +1,4 @@
-from healnet.models.perceiver import HealNet
+from healnet.models.healnet import HealNet
 from healnet.baselines import FCNN
 from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss
 

@@ -1,31 +1,16 @@
-import sys
-sys.path.append("/home/kh701/pycharm/x-perceiver/")
-
 import torch
 import torch.nn as nn
-import traceback
-from torch.autograd.profiler import profile
 from sklearn.model_selection import KFold, ParameterGrid
 import multiprocessing
-from multiprocessing import Pool
-from concurrent.futures import ProcessPoolExecutor
-import concurrent.futures
-from functools import partial
 import argparse
-from itertools import repeat
 from argparse import Namespace
 import yaml
 from tqdm import tqdm
-from healnet.train import majority_classifier_acc
-from healnet.utils import EarlyStopping, calc_reg_loss, pickle_obj, unpickle
-from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from healnet.models.explainer import Explainer
+from healnet.utils import EarlyStopping, calc_reg_loss, pickle_obj
+from healnet.models.survival_loss import CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
 from healnet.baselines import RegularizedFCNN, MMPrognosis, MCAT, SNN, MILAttentionNet
 import numpy as np
-from torchsummary import summary
-import torch_optimizer as t_optim
 from sksurv.metrics import concordance_index_censored
-from sklearn.metrics import accuracy_score, f1_score, confusion_matrix
 from torch import optim
 from healnet.models import HealNet
 import pandas as pd
@@ -42,6 +27,9 @@ import wandb
 
 
 class Pipeline:
+    """
+    Main experimental pipeline class for training and evaluating models, config handling, and logging
+    """
 
     def __init__(self, config: Box, args: Namespace, wandb_name: str=None):
         self.config = flatten_config(config)
@@ -75,11 +63,11 @@ class Pipeline:
             with open(self.args.sweep_config, "r") as f:
                 sweep_config = yaml.safe_load(f)
 
-            sweep_id = wandb.sweep(sweep=sweep_config, project="x-perceiver")
+            sweep_id = wandb.sweep(sweep=sweep_config, project="healnet")
             wandb.agent(sweep_id, function=self.main)
         else:
             wandb_config = dict(self.config)
-            wandb.init(project="x-perceiver", name=self.wandb_name, config=wandb_config, resume=True)
+            wandb.init(project="healnet", name=self.wandb_name, config=wandb_config, resume=True)
         return None
 
 
@@ -117,7 +105,7 @@ class Pipeline:
         # Initialise wandb run (do here for sweep)
         if self.args.mode == "sweep":
             # update config with sweep config
-            wandb.init(project="x-perceiver", name=None, resume=True) # init sweep run
+            wandb.init(project="healnet", name=None, resume=True) # init sweep run
             for key, value in wandb.config.items():
                 if key in self.config.keys():
                     self.config[key] = value
@@ -401,7 +389,6 @@ class Pipeline:
             censorships = []
             event_times = []
             train_loss_surv, train_loss = 0.0, 0.0 # train_loss includes regularisation, train_loss_surve doesn't and is used for logging
-            # train_loss = 0.0
             grad_norms = []
 
             for batch, (features, censorship, event_time, y_disc) in enumerate(tqdm(train_data)):
@@ -451,15 +438,8 @@ class Pipeline:
                 loss = loss / gc + reg_loss # gradient accumulation step
                 loss.backward()
                 optimizer.step()
-                # grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in model.parameters()])).detach().cpu().numpy()
-                # grad_norms.append(grad_norm)
                 optimizer.zero_grad()
                 scheduler.step()
-
-            # print(f"Epoch {epoch}, Last LR: {scheduler.get_last_lr()[0]}")
-
-            # print(f"Epoch Norm Gradient Sum: {sum(grad_norms)}")
-            # print(f"Epoch Norm Gradient Mean: {np.mean(grad_norm)}")
 
             train_loss /= len(train_data)
             train_loss_surv /= len(train_data)
@@ -468,11 +448,6 @@ class Pipeline:
             censorships_full = np.concatenate(censorships)
             event_times_full = np.concatenate(event_times)
 
-            # epoch gradient norm
-            # # grad_norm = torch.norm(torch.stack([torch.norm(p.grad.detach()) for p in model.parameters()]))
-            # grad_norm = self.calc_gradient_norm(model)
-            # print(grad_norm)
-            # wandb.log({f"fold_{fold}_grad_norm": grad_norm}, step=epoch if fold == 1 else None)
 
             # calculate epoch-level concordance index
             train_c_index = concordance_index_censored((1-censorships_full).astype(bool), event_times_full, risk_scores_full, tied_tol=1e-08)[0]
@@ -515,9 +490,6 @@ class Pipeline:
                                                                                model=model,
                                                                                test_data=test_data,
                                                                                missing_mode="wsi")
-            # wandb.log({f"fold_{fold}_missing_50_loss": missing_50_loss, f"fold_{fold}_missing_50_c_index": missing_50_c_index}, step=epoch if fold == 1 else None)
-            # wandb.log({f"fold_{fold}_missing_omic_loss": missing_omic_loss, f"fold_{fold}_missing_omic_c_index": missing_omic_c_index}, step=epoch if fold == 1 else None)
-            # wandb.log({f"fold_{fold}_missing_wsi_loss": missing_wsi_loss, f"fold_{fold}_missing_wsi_c_index": missing_wsi_c_index}, step=epoch if fold == 1 else None)
 
             missing_performance = (missing_50_c_index, missing_omic_c_index, missing_wsi_c_index)
 
@@ -626,37 +598,14 @@ class Pipeline:
         total_norm = total_norm ** (1. / 2)
         return total_norm
 
-# def run_plan_iter(args):
-#     iteration, params, config, cl_args = args
-#     n_folds = 3
-#     dataset, sources, model = params["dataset"], params["sources"], params["model"]
-#     # print(f"Run plan iteration {iteration+1}/{len(grid)}")
-#     print(f"New run plan iteration")
-#     print(f"Dataset: {dataset}, Sources: {sources}, Model: {model}")
-#
-#     # skip healnet_early on single modality (same as regular healnet)
-#     if model == "healnet_early" and len(sources) == 1:
-#         return None
-#     config["dataset"] = dataset
-#     config["sources"] = sources
-#     config["model"] = model
-#     config["n_folds"] = n_folds
-#     pipeline = Pipeline(
-#             config=config,
-#             args=cl_args,
-#         )
-#     pipeline.main()
-
-
-
 
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description="Run main training pipeline of x-perceiver")
+    parser = argparse.ArgumentParser(description="Run main training pipeline of healnet")
 
     # assumes execution
-    parser.add_argument("--config_path", type=str, default="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml", help="Path to config file")
+    parser.add_argument("--config_path", type=str, default="config/main_gpu.yml", help="Path to config file")
     parser.add_argument("--mode", type=str, default="single_run", choices=["single_run", "sweep", "run_plan", "reg_ablation"])
     parser.add_argument("--sweep_config", type=str, default="config/sweep_bayesian.yaml", help="Hyperparameter sweep configuration")
     parser.add_argument("--dataset", type=str, default=None, help="Dataset for run plan")
@@ -715,24 +664,28 @@ if __name__ == "__main__":
               f"{list(grid)}")
 
     elif args.mode == "reg_ablation":
-        config["dataset"] = "kirp"
-        config["sources"] = ["omic"]
+        config["sources"] = ["omic", "slides"]
         config["model"] = "healnet"
         config["n_folds"] = 1
         config["train_loop.early_stopping"] = False
         config["train_loop.epochs"] = 50
-        regs = [0, 0.00025, 0.00045]
-        snn = [True]
+        regs  = [2.0,1.0]
+        snn = [True, False] # False
+        sets = ["blca", "brca", "ucec", "kirp"]
 
-        for reg in regs:
-            for s in snn:
-                config["model_params.l1"] = reg
-                config["model_params.snn"] = s
-                pipeline = Pipeline(
-                        config=config,
-                        args=args,
-                    )
-                pipeline.main()
+        for dataset in sets:
+            config["dataset"] = dataset
+            best_reg = config["model_params.l1"]
+            for reg in regs:
+                config["model_params.l1"] = best_reg / reg
+                for s in snn:
+                    config["model_params.l1"] = reg
+                    config["model_params.snn"] = s
+                    pipeline = Pipeline(
+                            config=config,
+                            args=args,
+                        )
+                    pipeline.main()
 
 
     else: # single_run or sweep

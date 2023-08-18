@@ -46,4 +46,4 @@ parameters:
   model_params.ff_dropout:
     min: 0.0
     max: 0.5
-program: x_perceiver/main.py
+program: healnet/main.py

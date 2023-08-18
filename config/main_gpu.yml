@@ -1,7 +1,7 @@
 data_path: /net/archive/export/tcga
 tcga_path: /net/archive/export/tcga/tcga
-gdc_client: /home/kh701/pycharm/x-perceiver/gdc-client
-log_path: /home/kh701/pycharm/x-perceiver/logs
+gdc_client: healnet/gdc-client
+log_path: healnet/logs
 seed: 1
 hyperparams: config/best_hyperparams.yml
 
