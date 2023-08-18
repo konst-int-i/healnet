@@ -1,9 +1,5 @@
-import sys
-sys.path.append("/home/kh701/pycharm/x-perceiver/")
-
 import torch
 import torch.nn as nn
-import traceback
 from sklearn.model_selection import KFold, ParameterGrid
 import multiprocessing
 import argparse
@@ -67,11 +63,11 @@ class Pipeline:
             with open(self.args.sweep_config, "r") as f:
                 sweep_config = yaml.safe_load(f)
 
-            sweep_id = wandb.sweep(sweep=sweep_config, project="x-perceiver")
+            sweep_id = wandb.sweep(sweep=sweep_config, project="healnet")
             wandb.agent(sweep_id, function=self.main)
         else:
             wandb_config = dict(self.config)
-            wandb.init(project="x-perceiver", name=self.wandb_name, config=wandb_config, resume=True)
+            wandb.init(project="healnet", name=self.wandb_name, config=wandb_config, resume=True)
         return None
 
 
@@ -109,7 +105,7 @@ class Pipeline:
         # Initialise wandb run (do here for sweep)
         if self.args.mode == "sweep":
             # update config with sweep config
-            wandb.init(project="x-perceiver", name=None, resume=True) # init sweep run
+            wandb.init(project="healnet", name=None, resume=True) # init sweep run
             for key, value in wandb.config.items():
                 if key in self.config.keys():
                     self.config[key] = value
@@ -606,10 +602,10 @@ class Pipeline:
 
 if __name__ == "__main__":
 
-    parser = argparse.ArgumentParser(description="Run main training pipeline of x-perceiver")
+    parser = argparse.ArgumentParser(description="Run main training pipeline of healnet")
 
     # assumes execution
-    parser.add_argument("--config_path", type=str, default="/home/kh701/pycharm/x-perceiver/config/main_gpu.yml", help="Path to config file")
+    parser.add_argument("--config_path", type=str, default="config/main_gpu.yml", help="Path to config file")
     parser.add_argument("--mode", type=str, default="single_run", choices=["single_run", "sweep", "run_plan", "reg_ablation"])
     parser.add_argument("--sweep_config", type=str, default="config/sweep_bayesian.yaml", help="Hyperparameter sweep configuration")
     parser.add_argument("--dataset", type=str, default=None, help="Dataset for run plan")

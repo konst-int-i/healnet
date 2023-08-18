@@ -10,7 +10,7 @@ def wb_tracking(config: Dict) -> None:
     # start a new wandb run to track this script
     wandb.init(
         # set the wandb project where this run will be logged
-        project="x-perceiver",
+        project="healnet",
 
         # track hyperparameters and run metadata
         config=config
