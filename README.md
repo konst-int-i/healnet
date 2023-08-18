@@ -1,6 +1,6 @@
 # HEALNet
 
-Explainable perceiver for multimodal tasks
+Hybrid Early-fusion Attention Learning Network
 
 ## Setup 
 
