@@ -31,6 +31,9 @@ import wandb
 
 
 class Pipeline:
+    """
+    Main experimental pipeline class for training and evaluating models, config handling, and logging
+    """
 
     def __init__(self, config: Box, args: Namespace, wandb_name: str=None):
         self.config = flatten_config(config)
@@ -704,24 +707,28 @@ if __name__ == "__main__":
               f"{list(grid)}")
 
     elif args.mode == "reg_ablation":
-        config["dataset"] = "kirp"
-        config["sources"] = ["omic"]
+        config["sources"] = ["omic", "slides"]
         config["model"] = "healnet"
         config["n_folds"] = 1
         config["train_loop.early_stopping"] = False
         config["train_loop.epochs"] = 50
-        regs = [0, 0.00025, 0.00045]
-        snn = [True]
+        regs  = [2.0,1.0]
+        snn = [True, False] # False
+        sets = ["blca", "brca", "ucec", "kirp"]
 
-        for reg in regs:
-            for s in snn:
-                config["model_params.l1"] = reg
-                config["model_params.snn"] = s
-                pipeline = Pipeline(
-                        config=config,
-                        args=args,
-                    )
-                pipeline.main()
+        for dataset in sets:
+            config["dataset"] = dataset
+            best_reg = config["model_params.l1"]
+            for reg in regs:
+                config["model_params.l1"] = best_reg / reg
+                for s in snn:
+                    config["model_params.l1"] = reg
+                    config["model_params.snn"] = s
+                    pipeline = Pipeline(
+                            config=config,
+                            args=args,
+                        )
+                    pipeline.main()
 
 
     else: # single_run or sweep
