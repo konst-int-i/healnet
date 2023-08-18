@@ -92,7 +92,7 @@ class TCGADataset(Dataset):
         self.features = self.omic_df.drop(["site", "oncotree_code", "case_id", "slide_id", "train", "censorship", "survival_months", "y_disc"], axis=1)
         self.omic_tensor = torch.Tensor(self.features.values)
         if self.config.model in ["healnet", "healnet_early"]:
-            # Perceiver model expects inputs of the shape (batch_size, input_dim, channels)
+            # Healnet expects inputs of the shape (batch_size, input_dim, channels)
             if self.config.omic_attention:
                 self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n feat channels", channels=1)
             else:
@@ -370,7 +370,7 @@ class TCGADataset(Dataset):
             transforms.ToTensor(),
             transforms.Lambda(lambda x: x[:3, :, :]), # remove alpha channel
             transforms.Resize((self.wsi_height, self.wsi_width)),
-            RearrangeTransform("c h w -> h w c") # rearrange for Perceiver architecture
+            RearrangeTransform("c h w -> h w c") # rearrange for Healnet architecture
         ])
         region_tensor = transform(region)
         return slide, region_tensor
