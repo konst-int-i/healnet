@@ -98,7 +98,10 @@ def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", s
     conf = Config(config).read()
     raw_path = Path(conf.tcga_path).joinpath(f"wsi/{dataset}")
     prep_path = Path(conf.tcga_path).joinpath(f"wsi/{dataset}_preprocessed_level{level}")
+    # create prep dir
+    prep_path.mkdir(parents=True, exist_ok=True)
 
+    assert os.path.exists(raw_path), f"Raw data path not found: {raw_path}"
     valid_steps = ["patch", "features"]
     assert step in valid_steps, f"Invalid step arg, must be one of {valid_steps}"
 
@@ -106,8 +109,27 @@ def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", s
     if not os.path.exists("CLAM/"):
         c.run("git clone git@github.com:mahmoodlab/CLAM.git")
 
+
+    if not os.path.exists(prep_path.joinpath("valid_prep_ids.csv")):
+        # check which slides have specified level available (only pass those to preprocessing)
+        valid_ids = []
+        for slide_id in os.listdir(raw_path):
+            # check whether specified level is available in slide
+            slide = OpenSlide(raw_path.joinpath(f"{slide_id}"))
+            try:
+                slide.level_dimensions[int(level)]
+                valid_ids.append(slide_id)
+            except IndexError as e:
+                print(f"Level {level} not available for slide {slide_id}")
+                continue
+
+        # write temp csv file with valid slide ids to pass to CLAM
+        df = pd.DataFrame({"slide_id": valid_ids})
+        df.to_csv(prep_path.joinpath("valid_prep_ids.csv"), index=False)
+
+
     if step == "patch":
-        c.run(f"python CLAM/create_patches_fp.py --source {raw_path} --save_dir {prep_path} "
+        c.run(f"python CLAM/create_patches_fp.py --source {raw_path} --save_dir {prep_path} --process_list valid_prep_ids.csv "
           f"--patch_size {int(conf.data.patch_size)} --patch_level {int(level)} --seg --patch --stitch")
 
     if step == "features":
