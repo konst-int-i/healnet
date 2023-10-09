@@ -124,16 +124,16 @@ def preprocess(c, dataset: str, level: int, config: str="config/main_gpu.yml", s
                 continue
 
         # write temp csv file with valid slide ids to pass to CLAM
-        df = pd.DataFrame({"slide_id": valid_ids})
-        df.to_csv(prep_path.joinpath("valid_prep_ids.csv"), index=False)
-
+        valid_slide_df = pd.DataFrame({"slide_id": valid_ids})
+        valid_slide_df.to_csv(prep_path.joinpath("valid_prep_ids.csv"), index=False)
 
     if step == "patch":
         c.run(f"python CLAM/create_patches_fp.py --source {raw_path} --save_dir {prep_path} --process_list valid_prep_ids.csv "
           f"--patch_size {int(conf.data.patch_size)} --patch_level {int(level)} --seg --patch --stitch")
 
     if step == "features":
-        slide_ids = [x.rstrip(".svs") for x in os.listdir(raw_path)]
+        # only take preprocessed slides
+        slide_ids = [x.rstrip(".h5") for x in os.listdir(prep_path.joinpath("patches")) if x.endswith(".h5")]
         # load patch coords
         coords = {}
         for slide_id in slide_ids:
