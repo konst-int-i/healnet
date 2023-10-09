@@ -6,18 +6,20 @@ import argparse
 from argparse import Namespace
 import yaml
 from tqdm import tqdm
+
 from healnet.utils import EarlyStopping, calc_reg_loss, pickle_obj
 from healnet.models.survival_loss import CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
 from healnet.baselines import RegularizedFCNN, MMPrognosis, MCAT, SNN, MILAttentionNet
+from healnet.models import HealNet
+from healnet.utils import Config, flatten_config
+from healnet.etl import TCGADataset
+
+from torch.utils.data import Dataset, DataLoader
 import numpy as np
 from sksurv.metrics import concordance_index_censored
 from torch import optim
-from healnet.models import HealNet
 import pandas as pd
 from box import Box
-from torch.utils.data import Dataset, DataLoader
-from healnet.utils import Config, flatten_config
-from healnet.etl import TCGADataset
 from pathlib import Path
 from datetime import datetime
 pd.set_option('display.max_columns', 50)
