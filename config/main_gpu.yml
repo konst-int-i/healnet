@@ -12,7 +12,7 @@ explainer: False
 missing_ablation: False
 omic_attention: False # switch off omic attention (debug mode)
 
-n_folds: 5
+n_folds: 1
 
 wandb: True # log to weights and biases (login required)
 
