@@ -57,6 +57,7 @@ class PreNorm(nn.Module):
         self.norm_context = nn.LayerNorm(context_dim) if exists(context_dim) else None
 
     def forward(self, x, **kwargs):
+        print(x.shape)
         x = self.norm(x)
 
         if exists(self.norm_context):
@@ -169,6 +170,7 @@ class Attention(nn.Module):
 
         out = einsum('b i j, b j d -> b i d', attn, v)
         out = rearrange(out, '(b h) n d -> b n (h d)', h = h)
+        # print(out.shape)
         return self.to_out(out)
 
 # main class
@@ -226,6 +228,8 @@ class HealNet(nn.Module):
         # modality-specific attention layers
         funcs = []
         for m in range(modalities):
+            print(latent_dim)
+            print(input_dims[m])
             funcs.append(lambda m=m: PreNorm(latent_dim, Attention(latent_dim, input_dims[m], heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dims[m]))
         cross_attn_funcs = tuple(map(cache_fn, tuple(funcs)))
 

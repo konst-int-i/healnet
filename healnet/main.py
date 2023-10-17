@@ -174,16 +174,15 @@ class Pipeline:
             "brca": 2,
             "kirp": 2,
             "ucec": 2,
-            "hnsc": 1,
-            "paad": 1,
-            "luad": 1,
-            "lusc": 1
+            "hnsc": 2,
+            "paad": 2,
+            "luad": 2,
+            "lusc": 2
         }
 
 
         data = TCGADataset(self.config["dataset"],
                            self.config,
-                           # level=level_dict[self.config["dataset"]],
                            level=int(self.config["data.wsi_level"]),
                            survival_analysis=True,
                            sources=self.sources,
