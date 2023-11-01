@@ -9,6 +9,7 @@ dependencies:
   - jupyter
   - python=3.9
   - pytorch
+  - pytest
   - pandas
   - scikit-learn
   - scikit-survival
