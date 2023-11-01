@@ -198,8 +198,8 @@ class AttentionUpdate(nn.Module):
             sim.masked_fill_(~mask, max_neg_value)
 
         # attention, what we cannot get enough of
-        # attn = sim.softmax(dim = -1)
-        attn = temperature_softmax(sim, temperature=0.5, dim=-1)
+        attn = sim.softmax(dim = -1)
+        # attn = temperature_softmax(sim, temperature=0.5, dim=-1)
         attn = einops.rearrange(attn, '(b h) n j -> b h n j', h=h)
         self.attn_weights = attn
         attn = self.dropout(attn)
@@ -248,11 +248,11 @@ class Attention(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    def forward(self, query, context = None, mask = None):
+    def forward(self, x, context = None, mask = None):
         h = self.heads
 
-        q = self.to_q(query)
-        context = default(context, query)
+        q = self.to_q(x)
+        context = default(context, x)
         k, v = self.to_kv(context).chunk(2, dim = -1)
 
         q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h = h), (q, k, v))
