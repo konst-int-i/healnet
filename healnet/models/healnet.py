@@ -217,7 +217,6 @@ class AttentionUpdate(nn.Module):
         return out
 
 
-
 class Attention(nn.Module):
     def __init__(self, query_dim, context_dim = None, heads = 8, dim_head = 64, dropout = 0.):
         super().__init__()
@@ -284,11 +283,11 @@ class HealNet(nn.Module):
         self,
         *,
         modalities: int,
-        num_freq_bands: int,
         depth: int,
         max_freq: float,
         input_channels: List,
         input_axes: List,
+        num_freq_bands: int = 10.,
         num_latents: int = 512,
         latent_dim: int = 512,
         cross_heads: int = 1,
@@ -439,25 +438,6 @@ class HealNet(nn.Module):
             if isinstance(module, Attention):
                 all_attn_weights.append(module.attn_weights)
         return all_attn_weights
-
-
-
-if __name__ == "__main__":
-    # test AttentionUpdate
-    # Test case
-    b = 10
-    # tabular
-    channel_dims = 2189
-    input_channels = 1 # just one channel for tabular
-    num_latents = 256
-    latent_dim = 32
-    # latent_dim
-    query = torch.randn(b, channel_dims, input_channels)
-    context = torch.randn(b, num_latents, latent_dim)
-
-    attention_module = LatentCrossAttention(query_dim=input_channels, latent_dim=latent_dim)
-    context_prime = attention_module(query, context)
-
 
 
 
