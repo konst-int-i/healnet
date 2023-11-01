@@ -154,22 +154,21 @@ class LatentCrossAttention(nn.Module):
         return context_prime
 
 class AttentionUpdate(nn.Module):
-    def __init__(self, query_dim, latent_dim = None, heads = 8, dim_head = 64, dropout = 0.):
+    def __init__(self, c_n, l_d = None, heads = 8, dim_head = 64, dropout = 0.):
         super().__init__()
         inner_dim = dim_head * heads
-        context_dim = default(latent_dim, query_dim)
+        context_dim = default(l_d, c_n)
 
         self.scale = dim_head ** -0.5
         self.heads = heads
-        self.latent_dim = latent_dim
+        self.latent_dim = l_d
 
-        self.to_q = nn.Linear(query_dim, inner_dim, bias = False)
+        self.to_q = nn.Linear(c_n, inner_dim, bias = False)
         self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias = False)
 
         self.dropout = nn.Dropout(dropout)
 
         self.attn_weights = None
-        # self._init_weights()
 
     def _init_weights(self):
     # Use He initialization for Linear layers
@@ -180,10 +179,10 @@ class AttentionUpdate(nn.Module):
                 if m.bias is not None:
                     nn.init.zeros_(m.bias)
 
-    def forward(self, context, x, mask = None):
+    def forward(self, x, context, mask = None):
         h = self.heads
         # x = einops.rearrange(x, "b d c -> b c d")
-
+        # x = torch.squeeze(x, 1)
         q = self.to_q(x)
         context = default(context, x)
         k, v = self.to_kv(context).chunk(2, dim = -1)
@@ -210,7 +209,7 @@ class AttentionUpdate(nn.Module):
         to_out = nn.Sequential(
             nn.Linear(attn.shape[1], self.latent_dim),
             nn.LeakyReLU(negative_slope=1e-2))
-        to_out.to("cuda")
+        # to_out.to("cuda")
 
         out = to_out(attn)
         # element-wise product
@@ -443,6 +442,21 @@ class HealNet(nn.Module):
 
 
 
+if __name__ == "__main__":
+    # test AttentionUpdate
+    # Test case
+    b = 10
+    # tabular
+    channel_dims = 2189
+    input_channels = 1 # just one channel for tabular
+    num_latents = 256
+    latent_dim = 32
+    # latent_dim
+    query = torch.randn(b, channel_dims, input_channels)
+    context = torch.randn(b, num_latents, latent_dim)
+
+    attention_module = LatentCrossAttention(query_dim=input_channels, latent_dim=latent_dim)
+    context_prime = attention_module(query, context)
 
 
 

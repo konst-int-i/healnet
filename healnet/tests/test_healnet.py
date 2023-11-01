@@ -1,20 +1,44 @@
+import pytest
+import einops
 from healnet.models import *
 import torch
 
-def test_latent_cross_attention():
+
+@pytest.fixture(autouse=True)
+def shape_test_vars():
     b = 10
     # tabular
     # Note - dimensions always denoted as
-    c_n = 1 # number of channels (1 for tabular)
+    c_n = 1 # number of channels (1 for tabular) ; note that channels correspond to modality input/features
     c_d = 2189 # dimensions of each channel
     l_n = 256 # number of latents
     l_d = 32 # latent dims
     # latent_dim
     query = torch.randn(b, c_n, c_d)
-    context = torch.randn(b, l_n, l_d)
+    latent = torch.randn(b, l_n, l_d)
+    print("\n")
+    print("query", query.shape)
+    print("context", latent.shape)
 
-    attention_module = LatentCrossAttention(query_dim=c_n, latent_dim=l_d)
-    context_prime = attention_module(query, context)
+    return b, c_n, c_d, l_n, l_d, query, latent
 
+
+def test_latent_cross_attention(shape_test_vars):
+
+    b, c_n, c_d, l_n, l_d, query, latent = shape_test_vars
+
+    # latent cross attention
+    lc_attention = LatentCrossAttention(query_dim=c_n, latent_dim=l_d)
+    lc_context = lc_attention(query, latent)
     # expect updated context to be of original context shape
-    assert context_prime.shape == (b, l_n, l_d)
+    assert lc_context.shape == (b, l_n, l_d)
+
+
+def test_attention_update(shape_test_vars):
+
+    b, c_n, c_d, l_n, l_d, query, latent = shape_test_vars
+    # query = einops.rearrange(query, "b c_n c_d -> b c_d c_n")
+    # attention update
+    attention_update = AttentionUpdate(c_n=c_d, l_d=l_d)
+    updated_context = attention_update(x=query, context=latent)
+    assert updated_context.shape == (b, l_n, l_d)
