@@ -16,4 +16,5 @@ def test_latent_cross_attention():
     attention_module = LatentCrossAttention(query_dim=c_n, latent_dim=l_d)
     context_prime = attention_module(query, context)
 
+    # expect updated context to be of original context shape
     assert context_prime.shape == (b, l_n, l_d)
