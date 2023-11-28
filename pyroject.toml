@@ -1,0 +1,11 @@
+[project]
+name="healnet"
+version="0.0.1"
+dependencides=[
+    "einops",
+    "torch",
+    "torchvision",
+    "openslide-python",
+    "seaborn",
+    "pandas"
+]
