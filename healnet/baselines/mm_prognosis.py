@@ -14,25 +14,14 @@ from typing import *
 import itertools
 from box import Box
 import numpy as np
-from einops.layers.torch import Reduce
 import matplotlib as mpl
 #mpl.use('Agg')
-import matplotlib.pyplot as plt
 from sklearn.utils import shuffle
-from sklearn.model_selection import train_test_split
-from torchvision import datasets, transforms, models
-from sklearn.metrics import accuracy_score, roc_auc_score
-from lifelines.utils import concordance_index
-from scipy.stats import pearsonr
+from torchvision import models
 
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
-from torch import optim
-
-# from utils import *
-import IPython
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
