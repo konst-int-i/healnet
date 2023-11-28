@@ -1,8 +1,25 @@
 # HEALNet
 
-Hybrid Early-fusion Attention Learning Network
+Code repository for paper: HEALNet - Hybrid Multi-Modal Fusion for Heterogeneous Biomedical Data. 
 
-## Setup 
+[Paper Link](https://arxiv.org/abs/2311.09115)
+![PyPI - Python Version](https://img.shields.io/pypi/pyversions/:packageName)
+
+
+
+<img src="src/healnet_overview_caption.png" width="700">
+
+
+## Quick usage 
+
+First, locally install HEALNet using pip.
+```
+pip install -e .
+```
+ 
+
+
+## Setup (fork or clone) 
 
 Install or update the conda environment using and then activate
 

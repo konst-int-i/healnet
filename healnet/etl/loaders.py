@@ -5,12 +5,10 @@ from healnet.utils import Config
 from openslide import OpenSlide
 import os
 from multiprocessing import Lock
-from multiprocessing import Pool, cpu_count, Manager
-import torchvision.models as models
+from multiprocessing import Manager
 import h5py
 import torch
 import pprint
-from functools import partial
 from einops import rearrange, repeat
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -18,7 +16,6 @@ import numpy as np
 from pathlib import Path
 from typing import *
 from box import Box
-from PIL import Image
 
 
 
