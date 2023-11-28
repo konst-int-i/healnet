@@ -33,6 +33,7 @@ def test_latent_cross_attention(shape_test_vars):
     lc_context = lc_attention(query, latent)
     # expect updated context to be of original context shape
     assert lc_context.shape == (b, l_c, l_d)
+    # attn weights: (b, x_d) (feature-dim)
 
 
 def test_attention_update(shape_test_vars):
@@ -41,6 +42,7 @@ def test_attention_update(shape_test_vars):
     attention_update = AttentionUpdate(c_n=t_d, l_d=l_d)
     updated_context = attention_update(x=query, context=latent)
     assert updated_context.shape == (b, l_c, l_d)
+    # attn weights: (b, x_d)
 
 def test_attention(shape_test_vars):
     b, t_c, t_d, _, _, l_c, l_d, query, latent = shape_test_vars
@@ -51,6 +53,8 @@ def test_attention(shape_test_vars):
     updated_latent = attention(x=latent, context=query)
 
     assert updated_latent.shape == (b, l_c, l_d)
+    # attn weights: (b, l_c)
+
 
 # def test_healnet(shape_test_vars):
 #     b, t_c, t_d, i_c, i_d, l_c, l_d, query, latent = shape_test_vars
