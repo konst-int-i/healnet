@@ -57,7 +57,6 @@ class PreNorm(nn.Module):
         self.norm_context = nn.LayerNorm(context_dim) if exists(context_dim) else None
 
     def forward(self, x, **kwargs):
-        print(x.shape)
         x = self.norm(x)
 
         if exists(self.norm_context):
