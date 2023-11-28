@@ -15,6 +15,7 @@ explanations/
 logs/
 preprocessed_dir/
 
+.idea/
 
 # Distribution / packaging
 .Python
