@@ -3,8 +3,7 @@ from setuptools import setup, find_packages
 setup(
     name='healnet',
     version='0.0.1',
-    package_dir={'': 'healnet'},
-    packages=find_packages(where='healnet'),
+    packages=['healnet.models', 'healnet.baselines', 'healnet.etl', 'healnet.utils'],
     install_requires=[
         'einops',
         'torch',
