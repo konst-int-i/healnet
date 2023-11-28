@@ -3,11 +3,12 @@
 Code repository for paper: HEALNet - Hybrid Multi-Modal Fusion for Heterogeneous Biomedical Data. 
 
 [Paper Link](https://arxiv.org/abs/2311.09115)
-![PyPI - Python Version](https://img.shields.io/pypi/pyversions/:packageName)
+
+[//]: # (![PyPI - Python Version]&#40;https://img.shields.io/pypi/pyversions/:packageName&#41;)
 
 
 
-<img src="src/healnet_overview_caption.png" width="700">
+<img src="assets/healnet_overview_caption.png" width="700">
 
 
 ## Quick usage 
