@@ -4,7 +4,7 @@ setup(
     name='healnet',
     version='0.0.1',
     package_dir={'': 'healnet'},
-    packages=find_packages(),
+    packages=find_packages(where='healnet'),
     install_requires=[
         'einops',
         'torch',
