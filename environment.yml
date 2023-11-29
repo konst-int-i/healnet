@@ -24,6 +24,6 @@ dependencies:
       - invoke
       - torchsummary
       - torch_optimizer
-      - wandb==0.15.8
+      - wandb>=0.15.8
       - openslide-python
       - opencv-python
