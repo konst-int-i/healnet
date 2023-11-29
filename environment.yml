@@ -4,25 +4,26 @@ channels:
   - conda-forge
   - defaults
   - pytorch
+  - nvidia
 dependencies:
   - einops
   - jupyter
   - python=3.9
-  - pytorch
-  - pandas
+  - pytorch=1.13.1
+  - cudatoolkit=11.2
+  - pandas=1.5.3
   - scikit-learn
   - scikit-survival
   - seaborn
-  - torchvision
+  - torchvision=0.14.1
   - tqdm
   - python-box
   - pip
   - pip:
       - h5py
       - invoke
-      - lifelines
       - torchsummary
       - torch_optimizer
-      - wandb
+      - wandb==0.15.8
       - openslide-python
       - opencv-python
