@@ -1,5 +1,5 @@
 from healnet.models.healnet import HealNet
 from healnet.baselines import FCNN
-from healnet.models.survival_loss import NLLSurvLoss, CrossEntropySurvLoss, CoxPHSurvLoss
+from healnet.models.survival_loss import CrossEntropySurvLoss, CoxPHSurvLoss
 
-__all__ = ["NLLSurvLoss", "CrossEntropySurvLoss", "CoxPHSurvLoss", "FCNN", "HealNet"]
+__all__ = ["CrossEntropySurvLoss", "CoxPHSurvLoss", "FCNN", "HealNet"]
