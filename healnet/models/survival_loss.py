@@ -58,9 +58,6 @@ def nll_loss_alternative(h, y, c, alpha=0.0, eps=1e-7, reduction='mean'):
         Numerical constant; lower bound to avoid taking logs of tiny numbers.
     reduction: str
         Do we sum or average the loss function over the batches. Must be one of ['mean', 'sum']
-    References
-    ----------
-    Zadeh, S.G. and Schmid, M., 2020. Bias in cross-entropy-based training of deep survival networks. IEEE transactions on pattern analysis and machine intelligence.
     """
     # print("h shape", h.shape)
 
@@ -69,10 +66,8 @@ def nll_loss_alternative(h, y, c, alpha=0.0, eps=1e-7, reduction='mean'):
     c = c.type(torch.int64)
 
     hazards = torch.sigmoid(h)
-    # print("hazards shape", hazards.shape)
 
     S = torch.cumprod(1 - hazards, dim=1)
-    # print("S.shape", S.shape, S)
 
     S_padded = torch.cat([torch.ones_like(c), S], 1)
 
@@ -83,9 +78,6 @@ def nll_loss_alternative(h, y, c, alpha=0.0, eps=1e-7, reduction='mean'):
     uncensored_loss = -(1 - c) * (torch.log(s_prev) + torch.log(h_this))
     censored_loss = - c * torch.log(s_this)
 
-
-    # print('uncensored_loss.shape', uncensored_loss.shape)
-    # print('censored_loss.shape', censored_loss.shape)
 
     neg_l = censored_loss + uncensored_loss
     if alpha is not None:
