@@ -4,10 +4,6 @@ Code repository for paper: HEALNet - Hybrid Multi-Modal Fusion for Heterogeneous
 
 [Paper Link](https://arxiv.org/abs/2311.09115)
 
-[//]: # (![PyPI - Python Version]&#40;https://img.shields.io/pypi/pyversions/:packageName&#41;)
-
-
-
 <img src="assets/healnet_overview_caption.png" width="700">
 
 
@@ -21,16 +17,6 @@ git clone <https/ssh_path>
 cd healnet
 pip install -e .
 ```
- 
-### Sample usage
-
-```Python
-from healnet.healnet import HealNet
-...
-```
-
-For a full walkthrough, please see `notebooks/sample.ipynb`.
-
 
 ## Reproducing experiments
 
@@ -141,13 +127,14 @@ TODO - build table showing size and number of samples of each dataset
 - [BRCA](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=3539225): Breast Invasive Carcinoma 
 - [UCEC](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=19039602): Uterine Corpus Endometrial Carcinoma
 - [KIRP](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=11829555): cevical Kidney Renal Papillary Cell Carcinoma
-- [LUAD](): 
-- [LUSC](): 
-- [PAAD](): 
-- [HNSC](): 
+- [LUAD](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=6881474): Lung Adenocarcinoma 
+- [LUSC](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=16056484): Lung Squamous Cell Carcinoma
+- [PAAD](https://gdc.cancer.gov/resources-tcga-users/tcga-code-tables/tcga-study-abbreviations): Pancreatic adenocarcinoma
+- [HNSC](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=11829589): Head and Neck Squamous Cell Carcinoma 
 
 #### Biobank
 
+To be added
 
 ## Running Experiments
 
