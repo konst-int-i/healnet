@@ -10,6 +10,14 @@ __pycache__/
 PORPOISE/
 gdc-client/
 CLAM/
+data/tcga/omic/
+explanations/
+logs/
+preprocessed_dir/
+
+wandb/
+
+.idea/
 
 # Distribution / packaging
 .Python
@@ -131,3 +139,4 @@ dmypy.json
 
 # Pyre type checker
 .pyre/
+/CLAM/

@@ -1,18 +1,38 @@
 # HEALNet
 
-Hybrid Early-fusion Attention Learning Network
+Code repository for paper: HEALNet - Hybrid Multi-Modal Fusion for Heterogeneous Biomedical Data. 
 
-## Setup 
+[Paper Link](https://arxiv.org/abs/2311.09115)
 
-Install or update the conda environment using and then activate
+<img src="assets/healnet_overview_caption.png" width="700">
 
-### Conda
+
+## Quickstart 
+
+### Local install
+
+First, locally install HEALNet using pip.
+```
+git clone <https/ssh_path>
+cd healnet
+pip install -e .
+```
+
+## Reproducing experiments
+
+If you want to reproduce the results in the paper instead of using HEALNet as a standalone module, you need to install a few more dependencies. 
+
+### Conda/Mamba environment
+
+Install or update the conda/mamba environment using and then activate. For a faster installation, we recommend using `mamba`. 
+
 ```
 conda env update -f environment.yml
 conda activate cognition
 ```
 
-### Command line installation
+
+### CLI for additional dependenceis 
 
 On Mac or Linux, you can install the below dependencies using the command line
 
@@ -21,18 +41,20 @@ invoke install --system <system>
 ```
 for both `linux` and `mac`. 
 
-### Openslide
+This will auto-install the requirements below (OpenSlide and GDC client). Please follow detailed instructions below if our pre-written installation fails.  
+
+#### Openslide
 Note that for `openslide-python` to work, you need to install `openslide` separately on your system. 
 See [here](https://openslide.org/download/) for instructions. 
 
-### GDC client
+#### GDC client
 To download the WSI data, you need to install the [gdc-client](https://docs.gdc.cancer.gov/Data_Transfer_Tool/Users_Guide/Data_Download_and_Upload/) for your respective platform
 
 
-## Data
+### Data
 
 
-### Download
+#### Download
 From the root of the repository, run
 
 1. Specify the path to the gdc-client executable in `main.yml` (this will likely be the repository root if you installed the dependencies using `invoke install`). 
@@ -94,19 +116,25 @@ On first run of the pipeline, the script will add an additional folder called `p
 
 ### Datasets
 
-We use the following datasets for the HEALNet experiments: 
+This repo contains the manifests and scripts to easily download the following 8 cancer sites from The Cancer Genome Atlas. You can use the GDC Data Access Tool and use the same scripts if you require additional data.  
+ 
 
 #### TCGA
+
+TODO - build table showing size and number of samples of each dataset
+
 - [BLCA](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=16056367): Urothelial Bladder Carcinoma 
 - [BRCA](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=3539225): Breast Invasive Carcinoma 
 - [UCEC](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=19039602): Uterine Corpus Endometrial Carcinoma
 - [KIRP](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=11829555): cevical Kidney Renal Papillary Cell Carcinoma
-
-BRCA and BLCA were chosen since they have a relatively high number of patients available in the TCGA data and are relatively well-studied. UCEC has been shown to have the highest overall WSI performance (and attribution) whilst KIRP has the highest performance on standalone omic data. 
-
+- [LUAD](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=6881474): Lung Adenocarcinoma 
+- [LUSC](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=16056484): Lung Squamous Cell Carcinoma
+- [PAAD](https://gdc.cancer.gov/resources-tcga-users/tcga-code-tables/tcga-study-abbreviations): Pancreatic adenocarcinoma
+- [HNSC](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=11829589): Head and Neck Squamous Cell Carcinoma 
 
 #### Biobank
 
+To be added
 
 ## Running Experiments
 
@@ -124,6 +152,11 @@ You can view the available command line arguments using
 python3 healnet/main.py --help
 ```
 
+### Full run
+
+```bash
+python3 healnet/main.py --mode run_plan
+```
 
 ### Hyperparameter search
 

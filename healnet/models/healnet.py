@@ -57,7 +57,6 @@ class PreNorm(nn.Module):
         self.norm_context = nn.LayerNorm(context_dim) if exists(context_dim) else None
 
     def forward(self, x, **kwargs):
-        print(x.shape)
         x = self.norm(x)
 
         if exists(self.norm_context):
@@ -180,9 +179,9 @@ class HealNet(nn.Module):
         self,
         *,
         modalities: int,
-        num_freq_bands: int,
-        depth: int,
-        max_freq: float,
+        num_freq_bands: int = 2,
+        depth: int = 3,
+        max_freq: float=2,
         input_channels: List,
         input_axes: List,
         num_latents: int = 512,

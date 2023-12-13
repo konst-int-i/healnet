@@ -1,0 +1,20 @@
+method: bayes
+metric:
+  goal: minimize
+  name: val_c_index
+parameters:
+  model_params.num_latents:
+    values:
+      - 4
+      - 32
+      - 64
+      - 256
+      - 1024
+  model_params.latent_dim:
+    values:
+      - 4
+      - 32
+      - 64
+      - 256
+      - 1024
+program: x_perceiver/main.py
