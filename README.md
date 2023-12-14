@@ -121,8 +121,6 @@ This repo contains the manifests and scripts to easily download the following 8 
 
 #### TCGA
 
-TODO - build table showing size and number of samples of each dataset
-
 - [BLCA](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=16056367): Urothelial Bladder Carcinoma 
 - [BRCA](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=3539225): Breast Invasive Carcinoma 
 - [UCEC](https://wiki.cancerimagingarchive.net/pages/viewpage.action?pageId=19039602): Uterine Corpus Endometrial Carcinoma
