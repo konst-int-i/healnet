@@ -1,3 +1,3 @@
-from healnet.etl.loaders import TCGADataset
+from healnet.etl.loaders import TCGADataset, MMDataset
 
-__all__ = ["TCGADataset"]
+__all__ = ["TCGADataset", "MMDataset"]
