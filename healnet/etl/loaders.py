@@ -18,7 +18,27 @@ from typing import *
 from box import Box
 
 
+class MMDataset(Dataset):
+    """
+    Generic torch dataset object for supervised multi-modal data.
+    """
+    def __init__(self, tensors: List[torch.Tensor], target: Optional[torch.Tensor]=None):
+        """
+        Args:
+            tensors(List[torch.Tensor]): modalities for each sample
+            target(torch.Tensor): label for each sample
+        """
+        self.tensors = tensors
+        self.target = target
 
+    def __getitem__(self, idx) -> [Tuple[List[torch.Tensor], torch.Tensor], List[torch.Tensor]]:
+        if self.target is None:
+            return [t[idx] for t in self.tensors]
+        else:
+            return [t[idx] for t in self.tensors], self.target[idx]
+
+    def __len__(self):
+        return self.tensors[0].size()[0]
 
 
 class TCGADataset(Dataset):

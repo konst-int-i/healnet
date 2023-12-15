@@ -18,6 +18,46 @@ cd healnet
 pip install -e .
 ```
 
+### Usage
+
+```python
+from healnet.models import HealNet
+from healnet.etl import MMDataset
+import torch
+import einops
+
+n = 1000 # number of samples
+b = 4 # batch size
+img_c = 3 # image channels
+tab_c = 1 # tabular channels
+tab_d = 5000 # tabular features
+h = 512 # image height
+w = 512 # image width
+
+# synthetic data example
+tab_tensor = torch.rand(size=(n, tab_c, tab_d)) # assume 5k tabular features
+img_tensor = torch.rand(size=(n, img_c, h, w)) # c h w
+dataset = MMDataset([tab_tensor, img_tensor])
+
+[tab_sample, img_sample] = dataset[0]
+
+# batch dim for illustration purposes
+tab_sample = einops.repeat(tab_sample, 'c d -> b c d', b=1)
+img_sample = einops.repeat(img_sample, 'c h w -> b c (h w)', b=1)
+
+model = HealNet(
+            modalities=2, 
+            input_channels=[tab_c, img_c], 
+            input_axes=[1, 1], # channel axes (0-indexed)
+            num_classes = 4
+        )
+
+# example forward pass
+model([tab_sample, img_sample])
+```
+
+Please view `notebooks/sample.ipynb` for a more detailed example.
+
 ## Reproducing experiments
 
 If you want to reproduce the results in the paper instead of using HEALNet as a standalone module, you need to install a few more dependencies. 
