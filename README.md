@@ -26,6 +26,7 @@ from healnet.etl import MMDataset
 import torch
 import einops
 
+# synthetic data example
 n = 1000 # number of samples
 b = 4 # batch size
 img_c = 3 # image channels
@@ -34,7 +35,6 @@ tab_d = 5000 # tabular features
 h = 512 # image height
 w = 512 # image width
 
-# synthetic data example
 tab_tensor = torch.rand(size=(n, tab_c, tab_d)) # assume 5k tabular features
 img_tensor = torch.rand(size=(n, img_c, h, w)) # c h w
 dataset = MMDataset([tab_tensor, img_tensor])
