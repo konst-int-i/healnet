@@ -8,6 +8,7 @@ channels:
 dependencies:
   - einops
   - jupyter
+  - pytest
   - python=3.9
   - pytorch=1.13.1=cuda112py39hb0b7ed5_200
   - cudatoolkit=11.3.1

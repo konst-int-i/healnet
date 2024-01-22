@@ -4,7 +4,7 @@ from healnet.models import *
 import torch
 
 
-@pytest.fixture(autouse=True)
+@pytest.fixture(autouse=True, scope="module")
 def vars():
     b = 10
     # tabular

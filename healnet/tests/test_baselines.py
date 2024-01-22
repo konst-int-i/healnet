@@ -1,6 +1,6 @@
 import pytest
 import torch
-from healnet.baselines.multimodn import ResNet, MLPEncoder, ClassDecoder
+from healnet.baselines.multimodn import ResNet, MLPEncoder, ClassDecoder, RNNEncoder
 
 
 @pytest.fixture(autouse=True, scope="module")
@@ -42,7 +42,31 @@ def test_multimodn(vars):
     assert upd_state.shape == (b, l_d)
 
     # patched image
-    # for patched images, it makes sense to use their xxx
+    # patch_tensor = torch.randn(b, i_c, i_d)
+    # # for patched images, it makes sense to use their RNN encoder
+    # patch_enc = RNNEncoder(
+    #     state_size=l_d,
+    #     hidden_layers=[128, 64],
+    #     n_features=i_d,
+    # )
+    # print(patch_enc)
+    #
+    # upd_state = patch_enc(state=state, x=patch_tensor)
+    #
+    # assert upd_state.shape == (b, l_d)
+
+
+    # omic
+    omic_tensor = torch.randn(b, t_d)
+    omic_enc = MLPEncoder(
+        state_size=l_d,
+        hidden_layers=[128, 64],
+        n_features=t_d,
+    )
+    upd_state = omic_enc(state=state, x=omic_tensor)
+    assert upd_state.shape == (b, l_d)
+
+
 
 
 
