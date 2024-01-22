@@ -1,6 +1,7 @@
 import torch
 from torch import Tensor
 import torch.nn as nn
+import einops
 import torch.nn.functional as F
 from abc import ABC, abstractmethod
 from typing import Callable, Tuple, Optional
@@ -56,8 +57,8 @@ class MLPEncoder(MultiModEncoder):
         return output
 
 
-class RNNEncoder(MultiModEncoder):
-    """RNN encoder"""
+class PatchEncoder(MultiModEncoder):
+    """RNN encoder adjusted for patched images"""
 
     def __init__(
         self,
@@ -85,7 +86,8 @@ class RNNEncoder(MultiModEncoder):
             out, h_n = layer(x)
             x = self.activation(out)
 
-        output, h_n = self.layers[-1](torch.cat([x, state], dim=1))
+        # need to average over patches
+        output, h_n = self.layers[-1](torch.cat([einops.reduce(tensor=x, pattern="b c d -> b d", reduction="sum"), state], dim=1))
 
         return output
 
