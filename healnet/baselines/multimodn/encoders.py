@@ -49,10 +49,16 @@ class MLPEncoder(MultiModEncoder):
                 self.layers.append(nn.Linear(in_dim, out_dim, device=device))
 
     def forward(self, state: Tensor, x: Tensor) -> Tensor:
+        b, *_ = x.shape
+        state = einops.repeat(state, "d -> b d", b=b)
+
         for layer in self.layers[0:-1]:
             x = self.activation(layer(x))
 
         output = self.layers[-1](torch.cat([x, state], dim=1))
+
+        # reduce state over batch
+        output = einops.reduce(output, "b d -> d", "mean")
 
         return output
 
@@ -82,12 +88,19 @@ class PatchEncoder(MultiModEncoder):
                 self.layers.append(nn.RNN(inDim, outDim, batch_first=True))
 
     def forward(self, state: Tensor, x: Tensor) -> Tensor:
+        # expand state
+        b, *_ = x.shape
+        state = einops.repeat(state, "d -> b d", b=b)
+
         for layer in self.layers[:-1]:
             out, h_n = layer(x)
             x = self.activation(out)
 
         # need to average over patches
         output, h_n = self.layers[-1](torch.cat([einops.reduce(tensor=x, pattern="b c d -> b d", reduction="sum"), state], dim=1))
+
+        # reduce state over batch
+        output = einops.reduce(output, "b d -> d", "mean")
 
         return output
 
@@ -129,7 +142,14 @@ class ResNet(nn.Module):
             for p in self.resnet.parameters():
                 p.requires_grad = False
 
-    def forward(self, state, images):
-        representations = self.resnet(images)
+    def forward(self, state, x):
+        # expand state
+        b, *_ = x.shape
+        state = einops.repeat(state, "d -> b d", b=b)
+
+        representations = self.resnet(x)
         output = self.fc(torch.cat([representations, state], dim=1))
+
+        # reduce state over batch
+        output = einops.reduce(output, "b d -> d", "mean")
         return output  # representations

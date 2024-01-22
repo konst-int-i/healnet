@@ -3,6 +3,7 @@ from abc import abstractmethod, ABC
 from torch import Tensor, sigmoid
 from typing import Callable, Optional, Tuple
 import torch.nn as nn
+import einops
 import torch.nn.functional as F
 
 
@@ -51,11 +52,15 @@ class MLPDecoder(MultiModDecoder):
         for i, (in_dim, out_dim) in enumerate(zip(dim_layers, dim_layers[1:])):  
             self.layers.append(nn.Linear(in_dim, out_dim, device=device))
 
-    def forward(self, x: Tensor) -> Tensor:       
+    def forward(self, latent: Tensor) -> Tensor:
+
+        # # expand to num_classes
+        # latent = einops.repeat(latent, "d -> b d", b = self.n_classes)
+
         for layer in self.layers[0:-1]:
-            x = self.hidden_activation((layer(x)))  
-        output = self.output_activation(self.layers[-1](x))
-        return output    
+            latent = self.hidden_activation((layer(latent)))
+        output = self.output_activation(self.layers[-1](latent))
+        return output
 
 
 class LogisticDecoder(ClassDecoder):
