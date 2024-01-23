@@ -49,7 +49,7 @@ class MultiModNModule(nn.Module):
 
         running_loss /= len(self.encoders)
 
-        # return cumulative loss and predictions after the last state (encoder)
+        # return expected loss over batches and encoders and predictions after the last state (encoder)
         return running_loss, pred
 
 

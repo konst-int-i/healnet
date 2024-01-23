@@ -107,6 +107,5 @@ def test_multimodn_task(vars):
     loss, logits = model(x=[tab_tensor, img_tensor], target=target)
 
     assert logits.shape == (b, 4)
-    print(loss)
 #
 #
