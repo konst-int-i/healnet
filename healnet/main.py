@@ -97,7 +97,7 @@ class Pipeline:
         valid_models = ["healnet", "fcnn", "healnet_early", "mcat", "mm_prognosis", "multimodn"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
-        valid_class_weights = ["inverse", "inverse_root", None]
+        valid_class_weights = ["inverse", "inverse_root", "None"]
         assert self.config[f"model_params.class_weights"] in valid_class_weights, f"Invalid class weight specified. " \
                                                                                 f"Valid weights are {valid_class_weights}"
 
@@ -318,12 +318,12 @@ class Pipeline:
             model.to(self.device)
 
         elif self.config.model == "multimodn":
-            l_d = 50
+            l_d = 2000
             tab_features = feat[0].shape[1]
             patch_dims = feat[1].shape[2]
             encoders = [
-                MLPEncoder(state_size=l_d, hidden_layers=[128, 64], n_features=tab_features),
-                PatchEncoder(state_size=l_d, hidden_layers=[128, 64], n_features=patch_dims)
+                MLPEncoder(state_size=l_d, hidden_layers=[1024, 256, 128, 64], n_features=tab_features),
+                PatchEncoder(state_size=l_d, hidden_layers=[512, 256, 128, 64], n_features=patch_dims)
             ]
             decoders = [ClassDecoder(state_size=l_d, n_classes=self.output_dims, activation=torch.sigmoid)]
 
