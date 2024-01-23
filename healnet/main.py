@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from sklearn.model_selection import KFold, ParameterGrid
 import multiprocessing
 import argparse
@@ -9,7 +10,8 @@ from tqdm import tqdm
 
 from healnet.utils import EarlyStopping, calc_reg_loss, pickle_obj
 from healnet.models.survival_loss import CrossEntropySurvLoss, CoxPHSurvLoss, nll_loss
-from healnet.baselines import RegularizedFCNN, MMPrognosis, MCAT, SNN, MILAttentionNet
+from healnet.baselines import RegularizedFCNN, MMPrognosis, MCAT, SNN, MILAttentionNet, MultiModNModule
+from healnet.baselines.multimodn import MLPEncoder, PatchEncoder, ClassDecoder
 from healnet.models import HealNet
 from healnet.utils import Config, flatten_config
 from healnet.etl import TCGADataset
@@ -92,7 +94,7 @@ class Pipeline:
         # # check that model parameters are specified
         # assert self.config.dataset in self.config.model_params.keys(), f"Model parameters not specified for dataset {self.config.dataset}"
 
-        valid_models = ["healnet", "fcnn", "healnet_early", "mcat", "mm_prognosis"]
+        valid_models = ["healnet", "fcnn", "healnet_early", "mcat", "mm_prognosis", "multimodn"]
         assert self.config.model in valid_models, f"Invalid model specified. Valid models are {valid_models}"
 
         valid_class_weights = ["inverse", "inverse_root", None]
@@ -315,6 +317,25 @@ class Pipeline:
             model = RegularizedFCNN(output_dim=self.output_dims)
             model.to(self.device)
 
+        elif self.config.model == "multimodn":
+            l_d = 50
+            tab_features = feat[0].shape[1]
+            patch_dims = feat[1].shape[2]
+            encoders = [
+                MLPEncoder(state_size=l_d, hidden_layers=[128, 64], n_features=tab_features),
+                PatchEncoder(state_size=l_d, hidden_layers=[128, 64], n_features=patch_dims)
+            ]
+            decoders = [ClassDecoder(state_size=l_d, n_classes=self.output_dims, activation=torch.sigmoid)]
+
+
+            model = MultiModNModule(
+                state_size=l_d,
+                encoders=encoders,
+                decoders=decoders
+            )
+            model.float()
+            model.to(self.device)
+
         elif self.config.model == "mm_prognosis":
             if len(self.config["sources"]) == 1:
                 input_dim = feat[0].shape[1]
@@ -407,7 +428,12 @@ class Pipeline:
 
                 optimizer.zero_grad()
                 # forward + backward + optimize
-                logits = model.forward(features)
+                if self.config["model"] == "multimodn":
+                    # note that we need to pass the target here for the intermediate loss calc
+                    model_loss, logits = model.forward(features, F.one_hot(y_disc, num_classes=self.output_dims))
+                else:
+                    logits = model.forward(features)
+                    model_loss = 0.0
                 y_hat = torch.topk(logits, k=1, dim=1)[1]
                 hazards = torch.sigmoid(logits)  # sigmoid to get hazards from predictions for surv analysis
                 survival = torch.cumprod(1-hazards, dim=1)  # as per paper, survival = cumprod(1-hazards)
@@ -416,13 +442,14 @@ class Pipeline:
                 if self.config["survival.loss"] == "nll":
                     # loss_fn = NLLSurvLoss()
                     # loss = loss_fn(h=hazards, y=y_disc, c=censorship)
-                    loss = nll_loss(hazards=hazards, S=survival, Y=y_disc, c=censorship, weights=self.class_weights)
+                    surv_loss = nll_loss(hazards=hazards, S=survival, Y=y_disc, c=censorship, weights=self.class_weights)
                 elif self.config["survival.loss"] == "ce_survival":
                     loss_fn = CrossEntropySurvLoss()
-                    loss = loss_fn(hazards=hazards, survival=survival, y_disc=y_disc, censorship=censorship)
+                    surv_loss = loss_fn(hazards=hazards, survival=survival, y_disc=y_disc, censorship=censorship)
                 elif self.config["survival.loss"] == "cox":
                     loss_fn = CoxPHSurvLoss()
                     loss_fn(hazards=hazards, survival=survival, censorship=censorship)
+
 
                 dataset = self.config.dataset
                 reg_loss = calc_reg_loss(model, self.config[f"model_params.l1"], self.config.model, self.config.sources)
@@ -432,12 +459,12 @@ class Pipeline:
                 censorships.append(censorship.detach().cpu().numpy())
                 event_times.append(event_time.detach().cpu().numpy())
 
-                loss_value = loss.item()
+                loss_value = surv_loss.item()
                 train_loss_surv += loss_value
                 train_loss += loss_value + reg_loss
                 # backward pass
-                loss = loss / gc + reg_loss # gradient accumulation step
-                loss.backward()
+                surv_loss = surv_loss / gc + reg_loss + model_loss  # gradient accumulation step
+                surv_loss.backward()
                 optimizer.step()
                 optimizer.zero_grad()
                 scheduler.step()
@@ -543,7 +570,11 @@ class Pipeline:
             event_time = event_time.to(self.device)
             y_disc = y_disc.to(self.device)
 
-            logits = model.forward(features)
+            if self.config["model"] == "multimodn":
+                model_loss, logits = model.forward(features, F.one_hot(y_disc, num_classes=self.output_dims))
+            else:
+                logits = model.forward(features)
+                modeL_loss = 0.0
             hazards = torch.sigmoid(logits)
             survival = torch.cumprod(1-hazards, dim=1)
             risk = -torch.sum(survival, dim=1).detach().cpu().numpy()
@@ -568,7 +599,7 @@ class Pipeline:
 
             loss_value = loss.item()
             val_loss_surv += loss_value
-            val_loss += loss_value + reg_loss
+            val_loss += loss_value + reg_loss + model_loss
 
             predictions.append(logits.argmax(1).cpu().tolist())
             labels.append(y_disc.detach().cpu().tolist())

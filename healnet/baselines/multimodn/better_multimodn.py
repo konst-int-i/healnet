@@ -29,12 +29,15 @@ class MultiModNModule(nn.Module):
         self.decoder = nn.ModuleList(decoders)
 
     def forward(self, x: List[torch.Tensor], target: torch.Tensor) -> torch.Tensor:
+        assert len(x) == len(self.encoders), "Number of inputs must match number of encoders"
 
         b, *_ = x[0].shape # get batch dims
 
         # each sample in batch gets assigned state
+        # only expand once
+        # if len(self.state.shape) == 1:
         self.state = nn.Parameter(einops.repeat(self.state, "d -> b d", b=b))
-        # (b, l_d)
+
 
         running_loss = 0
         for encoder, mod in zip(self.encoders, x):
@@ -48,7 +51,8 @@ class MultiModNModule(nn.Module):
             running_loss += loss
 
         running_loss /= len(self.encoders)
-
+        # reduce state over batch dim
+        self.state = nn.Parameter(self.state.mean(dim=0))
         # return expected loss over batches and encoders and predictions after the last state (encoder)
         return running_loss, pred
 
@@ -56,8 +60,7 @@ class MultiModNModule(nn.Module):
 
     def calc_loss(self, pred: torch.Tensor, actual: torch.Tensor, s_old: torch.Tensor, s_new: torch.Tensor):
         b, *_ = pred.shape
-        actual = einops.repeat(actual, "d -> b d", b=b)
-        err_loss = nn.CrossEntropyLoss()(pred, actual)
+        err_loss = nn.CrossEntropyLoss()(pred, actual.float())
         state_change_loss = torch.mean((s_new - s_old) ** 2)
 
         # mean over mini-batch

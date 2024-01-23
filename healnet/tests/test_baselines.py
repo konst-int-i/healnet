@@ -9,7 +9,7 @@ from typing import *
 
 @pytest.fixture(autouse=True, scope="module")
 def vars():
-    b = 10
+    b = 1
     # tabular
     # Note - dimensions always denoted as
     t_c = 1 # number of channels (1 for tabular) ; note that channels correspond to modality input/features
@@ -107,5 +107,3 @@ def test_multimodn_task(vars):
     loss, logits = model(x=[tab_tensor, img_tensor], target=target)
 
     assert logits.shape == (b, 4)
-#
-#
