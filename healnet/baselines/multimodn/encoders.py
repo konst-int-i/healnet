@@ -49,8 +49,8 @@ class MLPEncoder(MultiModEncoder):
                 self.layers.append(nn.Linear(in_dim, out_dim, device=device))
 
     def forward(self, state: Tensor, x: Tensor) -> Tensor:
-        b, *_ = x.shape
-        state = einops.repeat(state, "d -> b d", b=b)
+        # b, *_ = x.shape
+        # state = einops.repeat(state, "d -> b d", b=b)
 
         for layer in self.layers[0:-1]:
             x = self.activation(layer(x))
@@ -58,9 +58,9 @@ class MLPEncoder(MultiModEncoder):
         output = self.layers[-1](torch.cat([x, state], dim=1))
 
         # reduce state over batch
-        output = einops.reduce(output, "b d -> d", "mean")
+        # output = nn.Parameter(einops.reduce(output, "b d -> d", "mean"))
 
-        return output
+        return nn.Parameter(output)
 
 
 class PatchEncoder(MultiModEncoder):
@@ -89,8 +89,8 @@ class PatchEncoder(MultiModEncoder):
 
     def forward(self, state: Tensor, x: Tensor) -> Tensor:
         # expand state
-        b, *_ = x.shape
-        state = einops.repeat(state, "d -> b d", b=b)
+        # b, *_ = x.shape
+        # state = einops.repeat(state, "d -> b d", b=b)
 
         for layer in self.layers[:-1]:
             out, h_n = layer(x)
@@ -100,9 +100,9 @@ class PatchEncoder(MultiModEncoder):
         output, h_n = self.layers[-1](torch.cat([einops.reduce(tensor=x, pattern="b c d -> b d", reduction="sum"), state], dim=1))
 
         # reduce state over batch
-        output = einops.reduce(output, "b d -> d", "mean")
+        # output = nn.Parameter(einops.reduce(output, "b d -> d", "mean"))
 
-        return output
+        return nn.Parameter(output)
 
 
 
@@ -144,12 +144,8 @@ class ResNet(nn.Module):
 
     def forward(self, state, x):
         # expand state
-        b, *_ = x.shape
-        state = einops.repeat(state, "d -> b d", b=b)
 
         representations = self.resnet(x)
         output = self.fc(torch.cat([representations, state], dim=1))
 
-        # reduce state over batch
-        output = einops.reduce(output, "b d -> d", "mean")
-        return output  # representations
+        return nn.Parameter(output)

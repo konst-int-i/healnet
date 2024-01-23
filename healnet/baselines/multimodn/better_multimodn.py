@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import einops
 from typing import *
 from healnet.baselines.multimodn.encoders import MultiModEncoder
 from healnet.baselines.multimodn.decoders import MultiModDecoder
@@ -29,10 +30,16 @@ class MultiModNModule(nn.Module):
 
     def forward(self, x: List[torch.Tensor], target: torch.Tensor) -> torch.Tensor:
 
+        b, *_ = x[0].shape # get batch dims
+
+        # each sample in batch gets assigned state
+        self.state = nn.Parameter(einops.repeat(self.state, "d -> b d", b=b))
+        # (b, l_d)
+
         running_loss = 0
         for encoder, mod in zip(self.encoders, x):
             old_state = self.state.clone()
-            self.state = encoder(state=self.state, x=mod)
+            self.state = encoder(state=self.state, x=mod) # (l_d)
 
         # iterate through decoders as it's multitask
             for decoder in self.decoders:
@@ -48,10 +55,13 @@ class MultiModNModule(nn.Module):
 
 
     def calc_loss(self, pred: torch.Tensor, actual: torch.Tensor, s_old: torch.Tensor, s_new: torch.Tensor):
-        err_loss = nn.CrossEntropyLoss(pred, actual)
+        b, *_ = pred.shape
+        actual = einops.repeat(actual, "d -> b d", b=b)
+        err_loss = nn.CrossEntropyLoss()(pred, actual)
         state_change_loss = torch.mean((s_new - s_old) ** 2)
 
-        loss = (err_loss * self.err_penalty + state_change_loss * self.state_change_penalty)
+        # mean over mini-batch
+        loss = torch.mean((err_loss * self.err_penalty + state_change_loss * self.state_change_penalty), dim=0)
 
         return loss
 

@@ -32,7 +32,7 @@ def test_multmodn_encoders(vars):
 
     # init state
     # only allows 1D stat
-    state = torch.randn(l_d) #  doesn't allow channels :(
+    state = nn.Parameter(torch.randn(b, l_d), requires_grad=True) #  doesn't allow channels :(
 
     # expects raw image
     img_tensor = torch.randn(b, 3, 255, 255) # standard resnet18 dims
@@ -43,7 +43,7 @@ def test_multmodn_encoders(vars):
         )
     upd_state = img_enc(state=state, x=img_tensor)
 
-    assert upd_state.shape[0] == l_d
+    assert upd_state.shape == (b, l_d)
 
     # # patched image
     patch_tensor = torch.randn(b, i_c, i_d)
@@ -56,7 +56,7 @@ def test_multmodn_encoders(vars):
 
     upd_state = patch_enc(state=state, x=patch_tensor)
 
-    assert upd_state.shape[0] == l_d
+    assert upd_state.shape == (b, l_d)
 
 
     # omic
@@ -67,14 +67,15 @@ def test_multmodn_encoders(vars):
         n_features=t_d,
     )
     upd_state = omic_enc(state=state, x=omic_tensor)
-    assert upd_state.shape[0] == l_d
+    assert upd_state.shape == (b, l_d)
 
-
+#
 def test_multimodn_decoders(vars):
     b, t_c, t_d, i_c, i_d, l_c, l_d, query, latent, tab_tensor, img_tensor = vars
 
     # latent
-    latent = torch.randn(l_d)
+
+    latent = nn.Parameter(torch.randn(b, l_d))
     # the "decoders" are actually task-specific FF classifier heads
     head = ClassDecoder(state_size=l_d,
                         activation=torch.sigmoid,
@@ -82,8 +83,7 @@ def test_multimodn_decoders(vars):
                         )
 
     logits = head(latent)
-    print(logits)
-    assert logits.shape[0] == (4)
+    assert logits.shape == (b, 4)
 
 def test_multimodn_task(vars):
     b, t_c, t_d, i_c, i_d, l_c, l_d, query, latent, tab_tensor, img_tensor = vars
@@ -108,5 +108,5 @@ def test_multimodn_task(vars):
 
     assert logits.shape == (b, 4)
     print(loss)
-
-
+#
+#
