@@ -8,6 +8,7 @@ __pycache__/
 
 # subrepos
 PORPOISE/
+MultiModN/
 gdc-client/
 CLAM/
 data/tcga/omic/

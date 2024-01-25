@@ -8,6 +8,7 @@ channels:
 dependencies:
   - einops
   - jupyter
+  - pytest
   - python=3.9
   - pytorch=1.13.1=cuda112py39hb0b7ed5_200
   - cudatoolkit=11.3.1
@@ -16,6 +17,7 @@ dependencies:
   - scikit-learn
   - scikit-survival
   - seaborn
+  - torchmetrics=1.2.1
   - torchvision=0.14.1=cuda112py39h1a1de93_0
   - tqdm
   - python-box

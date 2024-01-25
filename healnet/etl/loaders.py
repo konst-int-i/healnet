@@ -184,6 +184,7 @@ class TCGADataset(Dataset):
                 return [omic_tensor, slide_tensor], censorship, event_time, y_disc
 
     def get_resize_dims(self, level: int, patch_height: int = 128, patch_width: int = 128, override=False):
+        # TODO - use TIA to handle resizing
         if override is False:
             width = self.sample_slide.level_dimensions[level][0]
             height = self.sample_slide.level_dimensions[level][1]
@@ -221,22 +222,18 @@ class TCGADataset(Dataset):
         svs_dict = {path.name: path for path in svs_files}
         return svs_dict
 
-    def _load_patch_coords(self):
-        """
-        Loads all patch coordinates for the dataset and level specified in the config and writes it to a dictionary
-        with key: slide_id and value: patch coordinates (where each coordinate is a x,y tupe)
-        """
-        coords = {}
-        for slide_id in self.slide_ids:
-            patch_path = self.prep_path.joinpath(f"patches/{slide_id}.h5")
-            h5_file = h5py.File(patch_path, "r")
-            patch_coords = h5_file["coords"][:]
-            coords[slide_id] = patch_coords
-        return coords
-
-    # @property
-    # def sample_slide_id(self):
-    #     return next(iter(self.wsi_paths.keys()))
+    # def _load_patch_coords(self):
+    #     """
+    #     Loads all patch coordinates for the dataset and level specified in the config and writes it to a dictionary
+    #     with key: slide_id and value: patch coordinates (where each coordinate is a x,y tupe)
+    #     """
+    #     coords = {}
+    #     for slide_id in self.slide_ids:
+    #         patch_path = self.prep_path.joinpath(f"patches/{slide_id}.h5")
+    #         h5_file = h5py.File(patch_path, "r")
+    #         patch_coords = h5_file["coords"][:]
+    #         coords[slide_id] = patch_coords
+    #     return coords
 
     def get_info(self, full_detail: bool = False):
         """
@@ -370,9 +367,6 @@ class TCGADataset(Dataset):
             Tuple (openslide object, tensor of region)
         """
 
-        # load in openslide object
-        # slide_path = self.wsi_paths[slide_id]
-        # slide = OpenSlide(slide_path + ".svs")
         slide = OpenSlide(self.raw_path.joinpath(f"{slide_id}.svs"))
 
         # specify resolution level
