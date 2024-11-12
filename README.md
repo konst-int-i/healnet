@@ -1,6 +1,8 @@
 # HEALNet
 
-Code repository for paper: HEALNet - Hybrid Multi-Modal Fusion for Heterogeneous Biomedical Data. 
+Code repository for paper **_HEALNet: Multimodal Fusion for Heterogeneous Biomedical Data_**
+
+### NOTE: early pre-release: camera-ready version release coming soon 👀
 
 [Paper Link](https://arxiv.org/abs/2311.09115)
 
@@ -57,6 +59,21 @@ model([tab_sample, img_sample])
 ```
 
 Please view `notebooks/sample.ipynb` for a more detailed example.
+
+## Citation
+
+Please consider citing our paper if you find it useful: 
+
+```
+@inproceedings{hemker2024healnet,
+    author = {Konstantin Hemker and Nikola Simidjievski and Mateja Jamnik},
+    title = {HEALNet: Multimodal Fusion for Heterogeneous Biomedical Data},
+    booktitle = {Advances in Neural Information Processing Systems},
+    year = {2024},
+    month = dec,
+}
+```
+
 
 ## Reproducing experiments
 
