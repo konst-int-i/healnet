@@ -9,8 +9,6 @@ from healnet.baselines.multimodn.decoders import MultiModDecoder
 
 
 from healnet.baselines.multimodn.utils import InitState, TrainableInitState, MultiModNHistory
-# from multimodn.state import InitState, TrainableInitState
-# from multimodn.history import MultiModNHistory
 from typing import List, Optional, Iterable, Tuple, Callable, Union
 import torch.nn as nn
 import numpy as np
