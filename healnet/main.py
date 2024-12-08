@@ -291,7 +291,7 @@ class Pipeline:
             model = HealNet(
                 modalities=modalities,
                 input_channels=input_channels, # number of features as input channels
-                input_axes=input_axes, # second axis (b n_feats c)
+                input_axes=input_axes, # second axis (b n_feats channels)
                 num_classes=self.output_dims,
                 num_freq_bands=self.config[f"model_params.num_freq_bands"],
                 depth=self.config[f"model_params.depth"],
@@ -420,7 +420,7 @@ class Pipeline:
                 event_time = event_time.to(self.device) # survival months (continuous)
                 y_disc = y_disc.to(self.device) # discretized survival time bucket
 
-                if batch == 0 and epoch == 0: # print model summary
+                if batch == 0 and epoch == 1: # print model summary
                     print(f"Modality shapes: ")
                     [print(feat.shape) for feat in features]
                     print(f"Modality dtypes:")

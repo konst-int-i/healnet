@@ -198,7 +198,10 @@ class Explainer(object):
         if self.show:
             plt.show()
 
-    def plot_slide_attn(self, slide_img, slide_attn, patch_coords, layer: int=0, downsample: float = None, save_patches: bool=True):
+    def plot_slide_attn(self, slide_img: np.array,
+                        slide_attn: torch.Tensor,
+                        patch_coords: np.array,
+                        layer: int=0, downsample: float = None, save_patches: bool=True):
 
         patch_size = (256, 256)
         if layer is None:

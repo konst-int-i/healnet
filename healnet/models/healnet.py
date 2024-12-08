@@ -11,6 +11,7 @@ from torch import nn, einsum
 import torch.nn.functional as F
 
 from einops import rearrange, repeat
+import einops
 from einops.layers.torch import Reduce
 
 # helpers
@@ -112,6 +113,110 @@ def temperature_softmax(logits, temperature=1.0, dim=-1):
 
 
 
+class LatentCrossAttention(nn.Module):
+    """
+    Module which takes in a query tensor and a context tensor, and returns an updated context tensor.
+    """
+    def __init__(self, query_dim=1, latent_dim=32):
+        super(LatentCrossAttention, self).__init__()
+
+        # Weight matrices for projecting query and context (key)
+        self.w_q = nn.Linear(query_dim, latent_dim, bias=False)  # Linear layer will act as our transformation matrix for Q
+        self.w_c = nn.Linear(latent_dim, latent_dim, bias=False)    # Transformation matrix for K (context)
+
+    def forward(self, query, context):
+        query = einops.rearrange(query, "b c d -> b d c")
+        # Linear projections of query and context
+        q_proj = self.w_q(query)  # [b, 2189, 32]
+        k_proj = self.w_c(context)  # [b, 256, 32]
+
+        # Calculating attention scores
+        S = torch.bmm(q_proj, k_proj.transpose(1, 2))  # [b, 2189, 256]
+
+        # Summing over the second dimension to get the required size
+        S_mean = torch.mean(S, dim=-1)  # [b, 2189]
+
+        # Calculating attention weights
+        attn = F.softmax(S_mean, dim=-1)  # [b, 2189]
+
+        # Compute the attention-weighted sum of q_proj
+        weighted_q_proj = torch.sum(attn.unsqueeze(-1) * q_proj, dim=1, keepdim=True)  # [b, 1, 32]
+
+        # Adding the update to the original context to get the updated context
+        context_prime = F.softmax(context + (weighted_q_proj * k_proj), dim=-1)
+
+        # element-wise (hadamard) product
+        query_prime = attn.unsqueeze(-1) * query  # [b, 2189, 1]
+
+        self.attn_weights = attn
+        self.query_prime = query_prime
+
+        return context_prime
+
+class AttentionUpdate(nn.Module):
+    def __init__(self, c_n, l_d = None, heads = 8, dim_head = 64, dropout = 0.):
+        super().__init__()
+        inner_dim = dim_head * heads
+        context_dim = default(l_d, c_n)
+
+        self.scale = dim_head ** -0.5
+        self.heads = heads
+        self.latent_dim = l_d
+
+        self.to_q = nn.Linear(c_n, inner_dim, bias = False)
+        self.to_kv = nn.Linear(context_dim, inner_dim * 2, bias = False)
+
+        self.dropout = nn.Dropout(dropout)
+
+        self.attn_weights = None
+
+    def _init_weights(self):
+    # Use He initialization for Linear layers
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='relu')
+                # Initialize bias to zero if there's any
+                if m.bias is not None:
+                    nn.init.zeros_(m.bias)
+
+    def forward(self, x, context, mask = None):
+        h = self.heads
+        # x = einops.rearrange(x, "b d c -> b c d")
+        # x = torch.squeeze(x, 1)
+        q = self.to_q(x)
+        context = default(context, x)
+        k, v = self.to_kv(context).chunk(2, dim = -1)
+
+        q, k, v = map(lambda t: rearrange(t, 'b n (h d) -> (b h) n d', h = h), (q, k, v))
+
+        sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+
+        if exists(mask):
+            mask = rearrange(mask, 'b ... -> b (...)')
+            max_neg_value = -torch.finfo(sim.dtype).max
+            mask = repeat(mask, 'b j -> (b h) () j', h = h)
+            sim.masked_fill_(~mask, max_neg_value)
+
+        # attention, what we cannot get enough of
+        attn = sim.softmax(dim = -1)
+        # attn = temperature_softmax(sim, temperature=0.5, dim=-1)
+        attn = einops.rearrange(attn, '(b h) n j -> b h n j', h=h)
+        self.attn_weights = attn
+        attn = self.dropout(attn)
+        attn = attn.mean(dim=-1).mean(dim=1)
+
+        nn.LeakyReLU(negative_slope=1e-2)
+        to_out = nn.Sequential(
+            nn.Linear(attn.shape[1], self.latent_dim),
+            nn.LeakyReLU(negative_slope=1e-2))
+        # to_out.to("cuda")
+
+        out = to_out(attn)
+        # element-wise product
+        out = einsum('b d, b i d -> b i d', out, context)
+        return out
+
+
 class Attention(nn.Module):
     def __init__(self, query_dim, context_dim = None, heads = 8, dim_head = 64, dropout = 0.):
         super().__init__()
@@ -178,11 +283,11 @@ class HealNet(nn.Module):
         self,
         *,
         modalities: int,
-        num_freq_bands: int = 2,
-        depth: int = 3,
-        max_freq: float=2,
+        depth: int,
+        max_freq: float,
         input_channels: List,
         input_axes: List,
+        num_freq_bands: int = 10.,
         num_latents: int = 512,
         latent_dim: int = 512,
         cross_heads: int = 1,
@@ -227,6 +332,10 @@ class HealNet(nn.Module):
         funcs = []
         for m in range(modalities):
             funcs.append(lambda m=m: PreNorm(latent_dim, Attention(latent_dim, input_dims[m], heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout), context_dim = input_dims[m]))
+            # funcs.append(lambda m=m: Attention(latent_dim, input_dims[m], heads = cross_heads, dim_head = cross_dim_head, dropout = attn_dropout))
+            # funcs.append(lambda m=m: AttentionUpdate(query_dim=input_dims[m], latent_dim=latent_dim))
+            # funcs.append(lambda m=m: PreNorm(input_axes[m], AttentionUpdate(query_dim=input_axes[m], latent_dim=latent_dim), context_dim = latent_dim))
+            # funcs.append(lambda m=m: LatentCrossAttention(query_dim=input_axes[m], latent_dim=latent_dim))
         cross_attn_funcs = tuple(map(cache_fn, tuple(funcs)))
 
         get_latent_attn = lambda: PreNorm(latent_dim, Attention(latent_dim, heads = latent_heads, dim_head = latent_dim_head, dropout = attn_dropout))
@@ -258,15 +367,12 @@ class HealNet(nn.Module):
             self.layers.append(nn.ModuleList(
                 [*cross_attn_layers, self_attns])
             )
-
+        print(self.layers)
         self.to_logits = nn.Sequential(
             Reduce('b n d -> b d', 'mean'),
             nn.LayerNorm(latent_dim),
             nn.Linear(latent_dim, num_classes)
         ) if final_classifier_head else nn.Identity()
-
-
-    # def _handle_missing(self, tensors: List[torch.Tensor]):
 
 
 
@@ -303,11 +409,12 @@ class HealNet(nn.Module):
             for i in range(self.modalities):
                 cross_attn= layer[i*2]
                 cross_ff = layer[(i*2)+1]
-                try:
-                    x = cross_attn(x, context = tensors[i], mask = mask) + x
-                    x =  cross_ff(x) + x
-                except:
-                    pass
+                # try:
+                x = cross_attn(x, context = tensors[i], mask = mask) + x
+                # x = cross_attn(x, tensors[i]) + x
+                x =  cross_ff(x) + x
+                # except:
+                #     pass
 
             if self.self_per_cross_attn > 0:
                 self_attn, self_ff = layer[-1]
@@ -331,10 +438,6 @@ class HealNet(nn.Module):
             if isinstance(module, Attention):
                 all_attn_weights.append(module.attn_weights)
         return all_attn_weights
-
-
-
-
 
 
 

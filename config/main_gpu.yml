@@ -28,7 +28,7 @@ data:
 
 sources: # select which data sources to use, list of string, valid values: omic, slides
   - omic
-  - slides
+#  - slides
 
 survival: # all parameters related to survival task
   loss: nll # valid: nll, ce_survival, cox
