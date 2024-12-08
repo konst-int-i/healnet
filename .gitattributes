@@ -12,3 +12,7 @@ data/tcga/omic/tcga_paad_all_clean.csv.zip filter=lfs diff=lfs merge=lfs -text
 data/tcga/omic/tcga_ucec_all_clean.csv.zip filter=lfs diff=lfs merge=lfs -text
 data/tcga/omic/tcga_lusc_all_clean.csv.zip filter=lfs diff=lfs merge=lfs -text
 data/tcga/omic/tcga_stad_all_clean.csv.zip filter=lfs diff=lfs merge=lfs -text
+data/tcga/omic_xena/brca_master.csv filter=lfs diff=lfs merge=lfs -text
+data/tcga/omic_xena/kirp_master.csv filter=lfs diff=lfs merge=lfs -text
+data/tcga/omic_xena/ucec_master.csv filter=lfs diff=lfs merge=lfs -text
+data/tcga/omic_xena/blca_master.csv filter=lfs diff=lfs merge=lfs -text
