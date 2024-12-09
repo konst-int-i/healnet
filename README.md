@@ -1,24 +1,63 @@
 # HEALNet
 
-Code repository for paper **_HEALNet: Multimodal Fusion for Heterogeneous Biomedical Data_**
+Code repository for paper [**_HEALNet: Multimodal Fusion for Heterogeneous Biomedical Data_**](https://arxiv.org/abs/2311.09115)
 
-### NOTE: early pre-release: camera-ready version release coming soon 👀
+## Designed for flexibility and robustness in multimodal pipelines
 
-[Paper Link](https://arxiv.org/abs/2311.09115)
+[[pdf](https://arxiv.org/pdf/2311.09115) | [Experimental Data]() | [Tutorial]() | [Cite]()]
+
+Authors: Konstantin Hemker, Nikola Simidjievski, Mateja Jamnik
 
 <img src="assets/healnet_overview_caption.png" width="700">
 
 
+## Updates & Release Notes
+
+* **8/12/2024**: Camera-ready release (v0.0.1) available! 
+* **25/09/2024**: HEALNet has been accepted to NeurIPS 2024. [Reach out](mailto:konstantin.hemker@cl.cam.ac.uk) if you want to connect during the conference in Vancouver! 
+
+
 ## Quickstart 
 
-### Local install
+### Installation
 
 First, locally install HEALNet using pip.
-```
+
+```bash 
 git clone <https/ssh_path>
 cd healnet
+conda create --name healnet python=3.9
+```
+
+We provide two sets of dependencies for installation:
+* Lightweight: access to `healnet.models` 
+* All: access to entire experimental pipeline
+
+#### Lightweight dependencies
+
+We recommend the lightweight installation if you only want to use the `healnet.models` to build on top of HEALNet in a different pipeline.
+
+```bash
 pip install -e .
 ```
+
+#### Full dependencies
+
+The full experiments require some further dependencies which can be installed using
+
+```bash
+`pip install -e .[all]
+```
+
+Note that you require the `.[all]` installation to run the tutorial. 
+
+
+You can test the installation by running the `pytests`
+
+```bash
+pytest -v healnet/tests/
+```
+
 
 ### Usage
 
@@ -85,7 +124,6 @@ Install or update the conda/mamba environment using and then activate. For a fas
 
 ```
 conda env update -f environment.yml
-conda activate cognition
 ```
 
 
@@ -110,8 +148,20 @@ To download the WSI data, you need to install the [gdc-client](https://docs.gdc.
 
 ### Data
 
+#### Multiomic download
 
-#### Download
+We are using git-lfs to store the pre-processed mutation, CNV, and gene expression data. 
+
+```bash
+sudo apt-get install git-lfs
+git lfs install
+git lfs pull
+```
+
+This will pull the data into `data/tcga/omic` and `data/tcga/omic_xena`. 
+
+
+#### WSI Download
 From the root of the repository, run
 
 1. Specify the path to the gdc-client executable in `main.yml` (this will likely be the repository root if you installed the dependencies using `invoke install`). 
@@ -198,7 +248,13 @@ To be added
 Given the configuration in `config.yml`, you can launch a single run using. Note that all below commands assume that you are in the repository root. 
 
 ```bash
-python3 healnet/main.py 
+python3 healnet/main.py
+```
+
+To prevent import errors, you may have to add your local path to the `PYTHONPATH`
+
+```bash
+export PYTHONPATH=<path_to_repository>:$PYTHONPATH
 ```
 
 You can view the available command line arguments using 
@@ -222,3 +278,6 @@ python3 healnet/main.py --hyperparameter_sweep
 ```
 
 Note that the sweep parameters are specified in the `config/sweep.yaml` file. If a parameter is not specified as part of the parameter sweep, the program will default to whatever is configured in `config/main_gpu.yml`
+
+
+

@@ -272,16 +272,13 @@ class Pipeline:
 
             num_sources = len(self.config["sources"])
             if num_sources == 1:
-                # input_channels = [feat[0].shape[2]]
                 input_channels = [feat[0].shape[2]]
                 input_axes = [1]
                 modalities = 1
             elif num_sources == 2 and self.config.model == "healnet":
-                # OLD
                 input_channels = [feat[0].shape[2], feat[1].shape[2]]
-                input_axes = [1, 1]
+                input_axes = [1, 1] # one axis (MIL and tabular)
                 modalities = 2
-                # input_channels = [feat[0].shape[1], feat[1].shape[1]]
 
             # early fusion healnet (concatenation, so just one modality)
             elif num_sources == 2 and self.config.model == "healnet_early":
@@ -290,18 +287,18 @@ class Pipeline:
                 input_axes = [1]
             model = HealNet(
                 modalities=modalities,
-                input_channels=input_channels, # number of features as input channels
-                input_axes=input_axes, # second axis (b n_feats channels)
+                num_tokens=input_channels, # number of features as input channels
+                spatial_axes=input_axes, # second axis (b n_feats channels)
                 num_classes=self.output_dims,
                 num_freq_bands=self.config[f"model_params.num_freq_bands"],
                 depth=self.config[f"model_params.depth"],
                 max_freq=self.config[f"model_params.max_freq"],
-                num_latents = self.config[f"model_params.num_latents"],
-                latent_dim = self.config[f"model_params.latent_dim"],
+                l_c = self.config[f"model_params.num_latents"],
+                l_d = self.config[f"model_params.latent_dim"],
                 cross_dim_head = self.config[f"model_params.cross_dim_head"],
                 latent_dim_head = self.config[f"model_params.latent_dim_head"],
-                cross_heads = self.config[f"model_params.cross_heads"],
-                latent_heads = self.config[f"model_params.latent_heads"],
+                x_heads = self.config[f"model_params.cross_heads"],
+                l_heads = self.config[f"model_params.latent_heads"],
                 attn_dropout = self.config[f"model_params.attn_dropout"],
                 ff_dropout = self.config[f"model_params.ff_dropout"],
                 weight_tie_layers = self.config[f"model_params.weight_tie_layers"],
@@ -574,7 +571,7 @@ class Pipeline:
                 model_loss, logits = model.forward(features, F.one_hot(y_disc, num_classes=self.output_dims))
             else:
                 logits = model.forward(features)
-                modeL_loss = 0.0
+                model_loss = 0.0
             hazards = torch.sigmoid(logits)
             survival = torch.cumprod(1-hazards, dim=1)
             risk = -torch.sum(survival, dim=1).detach().cpu().numpy()

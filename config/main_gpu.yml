@@ -10,11 +10,11 @@ model: healnet # [fcnn, healnet, healnet_early, mcat]
 
 explainer: False
 missing_ablation: False
-omic_attention: False # switch off omic attention (debug mode)
+omic_attention: True 
 
 n_folds: 1
 
-wandb: True # log to weights and biases (login required)
+wandb: False # log to weights and biases (login required)
 
 
 data:
@@ -28,7 +28,7 @@ data:
 
 sources: # select which data sources to use, list of string, valid values: omic, slides
   - omic
-#  - slides
+  - slides
 
 survival: # all parameters related to survival task
   loss: nll # valid: nll, ce_survival, cox

@@ -25,8 +25,6 @@ def test_attention(vars):
     b, t_c, t_d, _, _, l_c, l_d, query, latent = vars
     # attention
     attention = Attention(query_dim=l_d, context_dim=t_d)
-    # NOTE - traditional attention expectes the latent as the query and returns the latent
-    # Problem is that this also means that the attention-matrix is at the latent level
     updated_latent = attention(x=latent, context=query)
 
     assert updated_latent.shape == (b, l_c, l_d)
@@ -41,8 +39,8 @@ def test_healnet(vars):
 
     # unimodal case smoke test
     m1 = HealNet(modalities=1,
-                 input_channels=[t_d],
-                 input_axes=[1],  # second axis
+                 num_tokens=[t_d],
+                 spatial_axes=[1],  # second axis
                  num_classes=5
                  )
     logits1 = m1([tabular_data])
@@ -50,8 +48,8 @@ def test_healnet(vars):
 
     # bi-modal case
     m2 = HealNet(modalities=2,
-                 input_channels=[t_c, i_c],  # level of attention
-                 input_axes=[1, 1],
+                 num_tokens=[t_c, i_c],  # level of attention
+                 spatial_axes=[1, 1],
                  num_classes=4
                  )
     logits2 = m2([tabular_data, image_data])
@@ -60,11 +58,6 @@ def test_healnet(vars):
     # check misaligned args (1 mod but list of tensors)
     with pytest.raises(AssertionError):
         m3 = HealNet(modalities=1,
-                     input_channels=[t_c, i_c],  # level of attention
-                     input_axes=[1, 1],
+                     num_tokens=[t_c, i_c],  # level of attention
+                     spatial_axes=[1, 1],
                      )
-
-
-
-
-

@@ -1,5 +1,6 @@
 from typing import *
 import torch
+import torch.nn as nn
 
 def calc_reg_loss(model, l1: float, model_topo: str, sources: List[str]):
 
@@ -12,6 +13,9 @@ def calc_reg_loss(model, l1: float, model_topo: str, sources: List[str]):
         reg_loss = float(l1) * l1_norm
     return reg_loss
 
+
+def count_parameters(model: nn.Module) -> int:
+    return sum(p.numel() for p in model.parameters() if p.requires_grad)
 
 class EarlyStopping:
     def __init__(self, patience=5, verbose=False, mode='min'):

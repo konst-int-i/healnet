@@ -1,12 +1,11 @@
-from healnet.models.healnet import HealNet, Attention, AttentionUpdate, LatentCrossAttention
+from healnet.models.healnet import HealNet, Attention
 from healnet.baselines import FCNN
 from healnet.models.survival_loss import CrossEntropySurvLoss, CoxPHSurvLoss
 
-__all__ = ["NLLSurvLoss",
+__all__ = [
            "CrossEntropySurvLoss",
            "CoxPHSurvLoss",
            "FCNN",
            "HealNet",
            "Attention",
-           "AttentionUpdate",
-           "LatentCrossAttention"]
+           ]
