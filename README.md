@@ -44,7 +44,7 @@ pip install -e .
 The full experiments require some further dependencies which can be installed using
 
 ```bash
-`pip install -e .[all]
+pip install -e .[all]
 ```
 
 Note that you require the `.[all]` installation to run the tutorial. 
@@ -81,13 +81,13 @@ dataset = MMDataset([tab_tensor, img_tensor])
 [tab_sample, img_sample] = dataset[0]
 
 # batch dim for illustration purposes
-tab_sample = einops.repeat(tab_sample, 'c d -> b c d', b=1)
-img_sample = einops.repeat(img_sample, 'c h w -> b c (h w)', b=1)
+tab_sample = einops.repeat(tab_sample, 'c d -> b c d', b=1) # token: 
+img_sample = einops.repeat(img_sample, 'c h w -> b (h w) c', b=1)
 
 model = HealNet(
             modalities=2, 
-            input_channels=[tab_c, img_c], 
-            input_axes=[1, 1], # channel axes (0-indexed)
+            num_tokens=[tab_d, img_c], # number of tokens
+            spatial_axes=[1, 1], # number of spatial axes (will be positionally encoded to preserve structural information)
             num_classes = 4
         )
 
@@ -95,7 +95,7 @@ model = HealNet(
 model([tab_sample, img_sample])
 ```
 
-Please view `notebooks/sample.ipynb` for a more detailed example.
+Please view our [Getting Started Notebook](./tutorial/01_Getting_Started.ipynb) for a more detailed example.
 
 ## Citation
 
