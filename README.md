@@ -4,16 +4,14 @@ Code repository for paper [**_HEALNet: Multimodal Fusion for Heterogeneous Biome
 
 ## Designed for flexibility and robustness in multimodal pipelines
 
-[[pdf](https://arxiv.org/pdf/2311.09115) | [Experimental Data]() | [Tutorial]() | [Cite]()]
-
-Authors: Konstantin Hemker, Nikola Simidjievski, Mateja Jamnik
+[[pdf](https://arxiv.org/pdf/2311.09115) | [Experimental Data](#data) | [Getting Started](./tutorial/01_Getting_Started.ipynb) | [Cite](#citation)]
 
 <img src="assets/healnet_overview_caption.png" width="700">
 
 
-## Updates & Release Notes
+## Updates
 
-* **8/12/2024**: Camera-ready release (v0.0.1) available! 
+* **8/12/2024**: Camera-ready release (v0.1.0) available! 
 * **25/09/2024**: HEALNet has been accepted to NeurIPS 2024. [Reach out](mailto:konstantin.hemker@cl.cam.ac.uk) if you want to connect during the conference in Vancouver! 
 
 
