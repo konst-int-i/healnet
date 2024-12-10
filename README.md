@@ -11,7 +11,7 @@ Code repository for paper [**_HEALNet: Multimodal Fusion for Heterogeneous Biome
 
 ## Why use this model? 
 
-* **Preserve modality-specific signal**: HEALNet learns modality-specific weights for each modality and projects it into a shared latent paramter. For any number of spatial dimensions, positional encodings are created to capture spatial signal. 
+* **Preserve modality-specific signal**: HEALNet learns modality-specific weights for each modality and projects it into a shared latent bottleneck. For any number of spatial dimensions, positional encodings capture spatial signal. 
 * **Learn cross-modal interactions**: By passing a latent bottleneck through the fusion layers (Figure B) we 1) iteratively encode each modality into the latent bottleneck which 2) consequently becomes the context for the next modality. As such, the latent bottleneck becomes a "learned query" that is updated in each layer pass.
 * **Handling missing modalities**: The model's iterative architecture allows skipping missing modalities for individual samples at train or inference time without adding much noise. This allows to train on **all** data without being restricted to the intersection of available modalities. 
 * **Model inspection**: The model can be inspected through the modality-specific attention weights. 
@@ -111,20 +111,6 @@ logits = model(tensors)
 ```
 
 Please view our [Getting Started Notebook](./tutorial/01_Getting_Started.ipynb) for a more detailed example.
-
-## Citation
-
-Please consider citing our paper if you find it useful: 
-
-```
-@inproceedings{hemker2024healnet,
-    author = {Konstantin Hemker and Nikola Simidjievski and Mateja Jamnik},
-    title = {HEALNet: Multimodal Fusion for Heterogeneous Biomedical Data},
-    booktitle = {Advances in Neural Information Processing Systems},
-    year = {2024},
-    month = dec,
-}
-```
 
 
 ## Reproducing experiments
@@ -291,6 +277,5 @@ python3 healnet/main.py --hyperparameter_sweep
 ```
 
 Note that the sweep parameters are specified in the `config/sweep.yaml` file. If a parameter is not specified as part of the parameter sweep, the program will default to whatever is configured in `config/main_gpu.yml`
-
 
 
