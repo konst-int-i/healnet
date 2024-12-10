@@ -11,8 +11,8 @@ Code repository for paper [**_HEALNet: Multimodal Fusion for Heterogeneous Biome
 
 ## Why use this model? 
 
-* **Preserve modality-specific signal**: HEALNet learns modality-specific weights for each modality and projects it into a shared latent bottleneck. For any number of spatial dimensions, positional encodings capture spatial signal. 
-* **Learn cross-modal interactions**: By passing a latent bottleneck through the fusion layers (Figure B) we 1) iteratively encode each modality into the latent bottleneck which 2) consequently becomes the context for the next modality. As such, the latent bottleneck becomes a "learned query" that is updated in each layer pass.
+* **Preserve modality-specific signal**: HEALNet learns modality-specific weights for each modality and projects it into a shared embedding. Positional encodings capture spatial signal for the specified number of spatial dimensions. 
+* **Learn cross-modal interactions**: By passing a latent embedding through the fusion layers (Figure B), we 1) iteratively encode each modality into the share embedding which 2) consequently becomes the context for the next modality. As such, this latent becomes a "learned query" that is updated in each layer pass.
 * **Handling missing modalities**: The model's iterative architecture allows skipping missing modalities for individual samples at train or inference time without adding much noise. This allows to train on **all** data without being restricted to the intersection of available modalities. 
 * **Model inspection**: The model can be inspected through the modality-specific attention weights. 
 
