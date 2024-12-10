@@ -461,11 +461,32 @@ class RepeatTransform(object):
 
 
 if __name__ == '__main__':
-    os.chdir("../../")
-    config = Config("config/main.yml").read()
-    brca = TCGADataset("brca", config)
-    blca = TCGADataset("blca", config)
-    print(config)
-    print(brca.omic_df.shape, blca.omic_df.shape)
-    blca.load_wsi("TCGA-2F-A9KT-01Z-00-DX1.ADD6D87C-0CC2-4B1F-A75F-108C9EB3970F", resolution="lowest")
+    # os.chdir("../../")
+    # config = Config("config/main.yml").read()
+    # brca = TCGADataset("brca", config)
+    # blca = TCGADataset("blca", config)
+    # print(config)
+    # print(brca.omic_df.shape, blca.omic_df.shape)
+    # blca.load_wsi("TCGA-2F-A9KT-01Z-00-DX1.ADD6D87C-0CC2-4B1F-A75F-108C9EB3970F", resolution="lowest")
 
+    from torch.utils.data import DataLoader
+    
+    n=50
+    tab_tensor = torch.rand(size=(n, 1, 10))
+    img_tensor = torch.rand(size=(n, 224, 224, 1))
+    vid_tensor = torch.rand(size=(n, 12, 224, 224, 1))
+    
+    target = torch.rand(size=(n,))
+    
+    data = MMDataset([tab_tensor, img_tensor, vid_tensor], target)
+    
+    loader = DataLoader(data, batch_size=4, shuffle=True)
+    
+    # fetch batch
+    tensors, target = next(iter(loader))
+    
+    print([t.shape for t in tensors])
+
+
+# if __name__ == "__main__": 
+    

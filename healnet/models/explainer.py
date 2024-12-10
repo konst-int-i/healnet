@@ -372,10 +372,10 @@ class Explainer(object):
 
         # reload model
         model = HealNet(
-                modalities=modalities,
-                num_tokens=input_channels, # number of features as input channels
-                spatial_axes=input_axes, # second axis (b n_feats c)
-                num_classes=self.config[f"model_params.output_dims"],
+                n_modalities=modalities,
+                channel_dims=input_channels, # number of features as input channels
+                num_spatial_axes=input_axes, # second axis (b n_feats c)
+                out_dims=self.config[f"model_params.output_dims"],
                 num_freq_bands=self.config[f"model_params.num_freq_bands"],
                 depth=self.config[f"model_params.depth"],
                 max_freq=self.config[f"model_params.max_freq"],
