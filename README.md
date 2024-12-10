@@ -2,11 +2,11 @@
 
 Code repository for paper [**_HEALNet: Multimodal Fusion for Heterogeneous Biomedical Data_**](https://arxiv.org/abs/2311.09115)
 
-## Designed for flexibility and robustness in multimodal pipelines
+## An architecture for flexible and robust multimodal pipelines
 
 [[pdf](https://arxiv.org/pdf/2311.09115) | [Experimental Data](#data) | [Getting Started](./tutorial/01_Getting_Started.ipynb) | [Cite](#citation)]
 
-<img src="assets/healnet_overview_caption.png" width="700">
+<img src="assets/healnet_overview_caption.png" width="850">
 
 
 ## Updates
@@ -60,39 +60,47 @@ pytest -v healnet/tests/
 ### Usage
 
 ```python
-from healnet.models import HealNet
+from healnet import HealNet
 from healnet.etl import MMDataset
 import torch
 import einops
 
 # synthetic data example
-n = 1000 # number of samples
+n = 100 # number of samples
 b = 4 # batch size
 img_c = 3 # image channels
 tab_c = 1 # tabular channels
-tab_d = 5000 # tabular features
-h = 512 # image height
-w = 512 # image width
+tab_d = 2000 # tabular features
+# 2D dims
+h = 224 # image height
+w = 224 # image width
+# 3d dim
+d = 12
 
-tab_tensor = torch.rand(size=(n, tab_c, tab_d)) # assume 5k tabular features
-img_tensor = torch.rand(size=(n, img_c, h, w)) # c h w
-dataset = MMDataset([tab_tensor, img_tensor])
+tab_tensor = torch.rand(size=(n, tab_c, tab_d)) 
+img_tensor_2d = torch.rand(size=(n, h, w, img_c)) # h w c
+img_tensor_3d = torch.rand(size=(n, d, h, w, img_c)) # d h w c
+dataset = MMDataset([tab_tensor, img_tensor_2d, img_tensor_3d])
 
-[tab_sample, img_sample] = dataset[0]
+[tab_sample, img_sample_2d, img_sample_3d] = dataset[0]
 
 # batch dim for illustration purposes
-tab_sample = einops.repeat(tab_sample, 'c d -> b c d', b=1) # token: 
-img_sample = einops.repeat(img_sample, 'c h w -> b (h w) c', b=1)
+tab_sample = einops.repeat(tab_sample, 'c d -> b c d', b=1) # spatial axis: None (pass as 1)
+img_sample_2d = einops.repeat(img_sample_2d, 'h w c -> b h w c', b=1) # spatial axes: h w
+img_sample_3d = einops.repeat(img_sample_3d, 'd h w c -> b d h w c', b=1) # spatial axes: d h w
+
+tensors = [tab_sample, img_sample_2d, img_sample_3d]
+
 
 model = HealNet(
-            modalities=2, 
-            num_tokens=[tab_d, img_c], # number of tokens
-            spatial_axes=[1, 1], # number of spatial axes (will be positionally encoded to preserve structural information)
-            num_classes = 4
+            n_modalities=3, 
+            channel_dims=[2000, 3, 3], # (2000, 3, 3) number of channels/tokens per modality
+            num_spatial_axes=[1, 2, 3], # (1, 2, 3) number of spatial axes (will be positionally encoded to preserve spatial information)
+            out_dims = 4
         )
 
 # example forward pass
-model([tab_sample, img_sample])
+logits = model(tensors)
 ```
 
 Please view our [Getting Started Notebook](./tutorial/01_Getting_Started.ipynb) for a more detailed example.
@@ -209,7 +217,7 @@ tcga/wsi/<dataset>_preprocessed/
 Note that the slide.h5 files contain the coordinates of the patches that are to be read in 
 via OpenSlide (x, y coordinates). 
 
-On first run of the pipeline, the script will add an additional folder called `patch_features` which contains the ImageNet50 extracted features after patch normalisation as a 1024-dimensional tensor (using PyTorch serialisation). 
+On first run of the pipeline, the script will add an additional folder called `patch_features` which contains the ResNet50 extracted features after patch normalisation as a 2048-dimensional tensor (using PyTorch serialisation). 
 
 ```
 	├── patch_features
