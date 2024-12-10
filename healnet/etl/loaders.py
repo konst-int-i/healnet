@@ -112,9 +112,9 @@ class TCGADataset(Dataset):
         if self.config.model in ["healnet", "healnet_early"]:
             # Healnet expects inputs of the shape (batch_size, input_dim, channels)
             if self.config.omic_attention:
-                self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n feat channels", channels=1)
-            else:
                 self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n channels feat", channels=1)
+            else:
+                self.omic_tensor = einops.repeat(self.omic_tensor, "n feat -> n feat channels", channels=1)
 
 
         self.level = level
@@ -143,18 +143,13 @@ class TCGADataset(Dataset):
         elif len(self.sources) == 1 and self.sources[0] == "slides":
             slide_id = self.omic_df.iloc[index]["slide_id"].rsplit(".", 1)[0]
 
-            # if self.config.model == "mm_prognosis": # raw WSI
-            #     slide, slide_tensor = self.load_wsi(slide_id, level=self.level)
-            #     return [slide_tensor], censorship, event_time, y_disc
-
+           
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
-                # self.patch_cache.set(index, slide_tensor)
                 self.patch_cache[index] = slide_tensor
 
             else:
                 slide_tensor = self.patch_cache[index]
-                # slide_tensor = self.patch_cache.get(index)
             if self.config.model == "fcnn": # for fcnn baseline
                 slide_tensor = torch.flatten(slide_tensor)
 
@@ -167,11 +162,8 @@ class TCGADataset(Dataset):
             if index not in self.patch_cache:
                 slide_tensor = self.load_patch_features(slide_id)
                 self.patch_cache[index] = slide_tensor
-                # self.patch_cache.set(index, slide_tensor)
             else:
                 slide_tensor = self.patch_cache[index]
-                # slide_tensor = self.patch_cache.get(index)
-
 
             if self.concat: # for early fusion baseline
                 slide_flat = torch.flatten(slide_tensor)
@@ -399,6 +391,7 @@ class TCGADataset(Dataset):
         load_path = self.prep_path.joinpath(f"patch_features/{slide_id}.pt")
         with open(load_path, "rb") as file:
             patch_features = torch.load(file, weights_only=True)
+        patch_features = patch_features.permute(1, 0)
         return patch_features
 
 
@@ -468,11 +461,32 @@ class RepeatTransform(object):
 
 
 if __name__ == '__main__':
-    os.chdir("../../")
-    config = Config("config/main.yml").read()
-    brca = TCGADataset("brca", config)
-    blca = TCGADataset("blca", config)
-    print(config)
-    print(brca.omic_df.shape, blca.omic_df.shape)
-    blca.load_wsi("TCGA-2F-A9KT-01Z-00-DX1.ADD6D87C-0CC2-4B1F-A75F-108C9EB3970F", resolution="lowest")
+    # os.chdir("../../")
+    # config = Config("config/main.yml").read()
+    # brca = TCGADataset("brca", config)
+    # blca = TCGADataset("blca", config)
+    # print(config)
+    # print(brca.omic_df.shape, blca.omic_df.shape)
+    # blca.load_wsi("TCGA-2F-A9KT-01Z-00-DX1.ADD6D87C-0CC2-4B1F-A75F-108C9EB3970F", resolution="lowest")
 
+    from torch.utils.data import DataLoader
+    
+    n=50
+    tab_tensor = torch.rand(size=(n, 1, 10))
+    img_tensor = torch.rand(size=(n, 224, 224, 1))
+    vid_tensor = torch.rand(size=(n, 12, 224, 224, 1))
+    
+    target = torch.rand(size=(n,))
+    
+    data = MMDataset([tab_tensor, img_tensor, vid_tensor], target)
+    
+    loader = DataLoader(data, batch_size=4, shuffle=True)
+    
+    # fetch batch
+    tensors, target = next(iter(loader))
+    
+    print([t.shape for t in tensors])
+
+
+# if __name__ == "__main__": 
+    

@@ -198,7 +198,10 @@ class Explainer(object):
         if self.show:
             plt.show()
 
-    def plot_slide_attn(self, slide_img, slide_attn, patch_coords, layer: int=0, downsample: float = None, save_patches: bool=True):
+    def plot_slide_attn(self, slide_img: np.array,
+                        slide_attn: torch.Tensor,
+                        patch_coords: np.array,
+                        layer: int=0, downsample: float = None, save_patches: bool=True):
 
         patch_size = (256, 256)
         if layer is None:
@@ -369,19 +372,19 @@ class Explainer(object):
 
         # reload model
         model = HealNet(
-                modalities=modalities,
-                input_channels=input_channels, # number of features as input channels
-                input_axes=input_axes, # second axis (b n_feats c)
-                num_classes=self.config[f"model_params.output_dims"],
+                n_modalities=modalities,
+                channel_dims=input_channels, # number of features as input channels
+                num_spatial_axes=input_axes, # second axis (b n_feats c)
+                out_dims=self.config[f"model_params.output_dims"],
                 num_freq_bands=self.config[f"model_params.num_freq_bands"],
                 depth=self.config[f"model_params.depth"],
                 max_freq=self.config[f"model_params.max_freq"],
-                num_latents = self.config[f"model_params.num_latents"],
-                latent_dim = self.config[f"model_params.latent_dim"],
+                l_c = self.config[f"model_params.num_latents"],
+                l_d = self.config[f"model_params.latent_dim"],
                 cross_dim_head = self.config[f"model_params.cross_dim_head"],
                 latent_dim_head = self.config[f"model_params.latent_dim_head"],
-                cross_heads = self.config[f"model_params.cross_heads"],
-                latent_heads = self.config[f"model_params.latent_heads"],
+                x_heads = self.config[f"model_params.cross_heads"],
+                l_heads = self.config[f"model_params.latent_heads"],
                 attn_dropout = self.config[f"model_params.attn_dropout"],
                 ff_dropout = self.config[f"model_params.ff_dropout"],
                 weight_tie_layers = self.config[f"model_params.weight_tie_layers"],

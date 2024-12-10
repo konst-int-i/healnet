@@ -1,4 +1,4 @@
-name: cognition
+name: healnet
 channels: 
   - anaconda
   - conda-forge

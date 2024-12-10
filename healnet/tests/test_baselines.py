@@ -96,7 +96,7 @@ def test_multimodn_task(vars):
     ]
     decoders = [ClassDecoder(state_size=l_d, activation=torch.sigmoid, n_classes=4)]
 
-    target = torch.rand(4)
+    target = torch.rand((b, 4))
 
     model = MultiModNModule(
         state_size=l_d,

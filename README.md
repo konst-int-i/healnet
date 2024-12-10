@@ -1,78 +1,116 @@
 # HEALNet
 
-Code repository for paper **_HEALNet: Multimodal Fusion for Heterogeneous Biomedical Data_**
+Code repository for paper [**_HEALNet: Multimodal Fusion for Heterogeneous Biomedical Data_**](https://arxiv.org/abs/2311.09115)
 
-### NOTE: early pre-release: camera-ready version release coming soon 👀
+## An architecture for flexible and robust multimodal pipelines
 
-[Paper Link](https://arxiv.org/abs/2311.09115)
+[[pdf](https://arxiv.org/pdf/2311.09115) | [Installation](#Quickstart) | [Experimental Data](#data) | [Getting Started](./tutorial/01_Getting_Started.ipynb) | [Cite](#citation)]
 
-<img src="assets/healnet_overview_caption.png" width="700">
+<img src="assets/healnet_overview.png" width="850">
+
+
+## Why use this model? 
+
+* **Preserve modality-specific signal**: HEALNet learns modality-specific weights for each modality and projects it into a shared latent bottleneck. For any number of spatial dimensions, positional encodings capture spatial signal. 
+* **Learn cross-modal interactions**: By passing a latent bottleneck through the fusion layers (Figure B) we 1) iteratively encode each modality into the latent bottleneck which 2) consequently becomes the context for the next modality. As such, the latent bottleneck becomes a "learned query" that is updated in each layer pass.
+* **Handling missing modalities**: The model's iterative architecture allows skipping missing modalities for individual samples at train or inference time without adding much noise. This allows to train on **all** data without being restricted to the intersection of available modalities. 
+* **Model inspection**: The model can be inspected through the modality-specific attention weights. 
+
+## Updates
+
+* **8/12/2024**: Camera-ready release (v0.1.0) available! 
+* **25/09/2024**: HEALNet has been accepted to NeurIPS 2024. [Reach out](mailto:konstantin.hemker@cl.cam.ac.uk) to chat in Vancouver! 
 
 
 ## Quickstart 
 
-### Local install
+### Installation
 
 First, locally install HEALNet using pip.
-```
-git clone <https/ssh_path>
+
+```bash 
+git clone git@github.com:konst-int-i/healnet.git
 cd healnet
+conda create --name healnet python=3.9
+```
+
+We provide two sets of dependencies for installation:
+* Lightweight: access to `healnet.models` 
+* All: access to entire experimental pipeline
+
+#### Lightweight dependencies
+
+We recommend the lightweight installation if you only want to use the `healnet.models` to build on top of HEALNet in a different pipeline.
+
+```bash
 pip install -e .
 ```
+
+#### Full dependencies
+
+The full experiments require some further dependencies which can be installed using
+
+```bash
+pip install -e .[all]
+```
+
+Note that you require the `.[all]` installation to run the tutorial. 
+
+
+You can test the installation by running the `pytests`
+
+```bash
+pytest -v healnet/tests/
+```
+
 
 ### Usage
 
 ```python
-from healnet.models import HealNet
+from healnet import HealNet
 from healnet.etl import MMDataset
 import torch
 import einops
 
 # synthetic data example
-n = 1000 # number of samples
+n = 100 # number of samples
 b = 4 # batch size
 img_c = 3 # image channels
 tab_c = 1 # tabular channels
-tab_d = 5000 # tabular features
-h = 512 # image height
-w = 512 # image width
+tab_d = 2000 # tabular features
+# 2D dims
+h = 224 # image height
+w = 224 # image width
+# 3d dim
+d = 12
 
-tab_tensor = torch.rand(size=(n, tab_c, tab_d)) # assume 5k tabular features
-img_tensor = torch.rand(size=(n, img_c, h, w)) # c h w
-dataset = MMDataset([tab_tensor, img_tensor])
+tab_tensor = torch.rand(size=(n, tab_c, tab_d)) 
+img_tensor_2d = torch.rand(size=(n, h, w, img_c)) # h w c
+img_tensor_3d = torch.rand(size=(n, d, h, w, img_c)) # d h w c
+dataset = MMDataset([tab_tensor, img_tensor_2d, img_tensor_3d])
 
-[tab_sample, img_sample] = dataset[0]
+[tab_sample, img_sample_2d, img_sample_3d] = dataset[0]
 
 # batch dim for illustration purposes
-tab_sample = einops.repeat(tab_sample, 'c d -> b c d', b=1)
-img_sample = einops.repeat(img_sample, 'c h w -> b c (h w)', b=1)
+tab_sample = einops.repeat(tab_sample, 'c d -> b c d', b=1) # spatial axis: None (pass as 1)
+img_sample_2d = einops.repeat(img_sample_2d, 'h w c -> b h w c', b=1) # spatial axes: h w
+img_sample_3d = einops.repeat(img_sample_3d, 'd h w c -> b d h w c', b=1) # spatial axes: d h w
+
+tensors = [tab_sample, img_sample_2d, img_sample_3d]
+
 
 model = HealNet(
-            modalities=2, 
-            input_channels=[tab_c, img_c], 
-            input_axes=[1, 1], # channel axes (0-indexed)
-            num_classes = 4
+            n_modalities=3, 
+            channel_dims=[2000, 3, 3], # (2000, 3, 3) number of channels/tokens per modality
+            num_spatial_axes=[1, 2, 3], # (1, 2, 3) number of spatial axes (will be positionally encoded to preserve spatial information)
+            out_dims = 4
         )
 
 # example forward pass
-model([tab_sample, img_sample])
+logits = model(tensors)
 ```
 
-Please view `notebooks/sample.ipynb` for a more detailed example.
-
-## Citation
-
-Please consider citing our paper if you find it useful: 
-
-```
-@inproceedings{hemker2024healnet,
-    author = {Konstantin Hemker and Nikola Simidjievski and Mateja Jamnik},
-    title = {HEALNet: Multimodal Fusion for Heterogeneous Biomedical Data},
-    booktitle = {Advances in Neural Information Processing Systems},
-    year = {2024},
-    month = dec,
-}
-```
+Please view our [Getting Started Notebook](./tutorial/01_Getting_Started.ipynb) for a more detailed example.
 
 
 ## Reproducing experiments
@@ -85,7 +123,6 @@ Install or update the conda/mamba environment using and then activate. For a fas
 
 ```
 conda env update -f environment.yml
-conda activate cognition
 ```
 
 
@@ -110,8 +147,20 @@ To download the WSI data, you need to install the [gdc-client](https://docs.gdc.
 
 ### Data
 
+#### Multiomic download
 
-#### Download
+We are using git-lfs to store the pre-processed mutation, CNV, and gene expression data. 
+
+```bash
+sudo apt-get install git-lfs
+git lfs install
+git lfs pull
+```
+
+This will pull the data into `data/tcga/omic` and `data/tcga/omic_xena`. 
+
+
+#### WSI Download
 From the root of the repository, run
 
 1. Specify the path to the gdc-client executable in `main.yml` (this will likely be the repository root if you installed the dependencies using `invoke install`). 
@@ -161,7 +210,7 @@ tcga/wsi/<dataset>_preprocessed/
 Note that the slide.h5 files contain the coordinates of the patches that are to be read in 
 via OpenSlide (x, y coordinates). 
 
-On first run of the pipeline, the script will add an additional folder called `patch_features` which contains the ImageNet50 extracted features after patch normalisation as a 1024-dimensional tensor (using PyTorch serialisation). 
+On first run of the pipeline, the script will add an additional folder called `patch_features` which contains the ResNet50 extracted features after patch normalisation as a 2048-dimensional tensor (using PyTorch serialisation). 
 
 ```
 	├── patch_features
@@ -198,7 +247,13 @@ To be added
 Given the configuration in `config.yml`, you can launch a single run using. Note that all below commands assume that you are in the repository root. 
 
 ```bash
-python3 healnet/main.py 
+python3 healnet/main.py
+```
+
+To prevent import errors, you may have to add your local path to the `PYTHONPATH`
+
+```bash
+export PYTHONPATH=<path_to_repository>:$PYTHONPATH
 ```
 
 You can view the available command line arguments using 
@@ -222,3 +277,5 @@ python3 healnet/main.py --hyperparameter_sweep
 ```
 
 Note that the sweep parameters are specified in the `config/sweep.yaml` file. If a parameter is not specified as part of the parameter sweep, the program will default to whatever is configured in `config/main_gpu.yml`
+
+
