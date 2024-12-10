@@ -4,15 +4,22 @@ Code repository for paper [**_HEALNet: Multimodal Fusion for Heterogeneous Biome
 
 ## An architecture for flexible and robust multimodal pipelines
 
-[[pdf](https://arxiv.org/pdf/2311.09115) | [Experimental Data](#data) | [Getting Started](./tutorial/01_Getting_Started.ipynb) | [Cite](#citation)]
+[[pdf](https://arxiv.org/pdf/2311.09115) | [Installation](#Quickstart) | [Experimental Data](#data) | [Getting Started](./tutorial/01_Getting_Started.ipynb) | [Cite](#citation)]
 
-<img src="assets/healnet_overview_caption.png" width="850">
+<img src="assets/healnet_overview.png" width="850">
 
+
+## Why use this model? 
+
+* **Preserve modality-specific signal**: HEALNet learns modality-specific weights for each modality and projects it into a shared latent paramter. For any number of spatial dimensions, positional encodings are created to capture spatial signal. 
+* **Learn cross-modal interactions**: By passing a latent bottleneck through the fusion layers (Figure B) we 1) iteratively encode each modality into the latent bottleneck which 2) consequently becomes the context for the next modality. As such, the latent bottleneck becomes a "learned query" that is updated in each layer pass.
+* **Handling missing modalities**: The model's iterative architecture allows skipping missing modalities for individual samples at train or inference time without adding much noise. This allows to train on **all** data without being restricted to the intersection of available modalities. 
+* **Model inspection**: The model can be inspected through the modality-specific attention weights. 
 
 ## Updates
 
 * **8/12/2024**: Camera-ready release (v0.1.0) available! 
-* **25/09/2024**: HEALNet has been accepted to NeurIPS 2024. [Reach out](mailto:konstantin.hemker@cl.cam.ac.uk) if you want to connect during the conference in Vancouver! 
+* **25/09/2024**: HEALNet has been accepted to NeurIPS 2024. [Reach out](mailto:konstantin.hemker@cl.cam.ac.uk) to chat in Vancouver! 
 
 
 ## Quickstart 
@@ -22,7 +29,7 @@ Code repository for paper [**_HEALNet: Multimodal Fusion for Heterogeneous Biome
 First, locally install HEALNet using pip.
 
 ```bash 
-git clone <https/ssh_path>
+git clone git@github.com:konst-int-i/healnet.git
 cd healnet
 conda create --name healnet python=3.9
 ```
