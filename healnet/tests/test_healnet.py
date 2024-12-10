@@ -64,4 +64,5 @@ def test_healnet(vars):
         m3 = HealNet(n_modalities=1,
                      channel_dims=[t_d, i_c],  # level of attention
                      num_spatial_axes=[1, 1],
+                     out_dims=4,
                      )
